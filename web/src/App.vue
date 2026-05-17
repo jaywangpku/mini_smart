@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { BarChart3, Code2, Database, Edit3, Menu, PanelLeftClose, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
+import { BarChart3, Code2, Database, Edit3, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
 import {
   addPoolSymbol,
   createCustomFactor,
@@ -41,9 +41,13 @@ import {
   type StrategyRunResult,
   type SyncTask
 } from './api'
+import { defaultFactorSource, defaultStrategySource } from './defaultSources'
+import { dateRange, formatMoney, formatPct, localDateString } from './utils'
 import CodeEditor from './components/CodeEditor.vue'
-import EquityCurveChart from './components/EquityCurveChart.vue'
 import KlineChart from './components/KlineChart.vue'
+import SideNav from './components/SideNav.vue'
+import StrategyResultPanel from './components/StrategyResultPanel.vue'
+import ToastMessage from './components/ToastMessage.vue'
 
 type TabName = 'pools' | 'sync' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies'
 type ChartFactorPoint = { time: number; [key: string]: number | null | undefined }
@@ -179,32 +183,6 @@ const message = ref('')
 const error = ref('')
 let toastTimer: number | undefined
 let timer: number | undefined
-
-function localDateString(date = new Date()) {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
-function dateStartTs(value: string) {
-  if (!value) return undefined
-  const timestamp = new Date(`${value}T00:00:00`).getTime()
-  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : undefined
-}
-
-function dateEndTs(value: string) {
-  if (!value) return undefined
-  const timestamp = new Date(`${value}T23:59:59`).getTime()
-  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : undefined
-}
-
-function dateRange(startValue: string, endValue: string) {
-  return {
-    start: dateStartTs(startValue),
-    end: dateEndTs(endValue)
-  }
-}
 
 const selectedPool = computed(() => pools.value.find((pool) => pool.id === selectedPoolId.value))
 const enabledPoolSymbols = computed(() => poolSymbols.value.filter((row) => row.enabled))
@@ -445,53 +423,6 @@ function selectCustomFactor(factor: CustomFactor) {
   customFactorPreview.value = []
   customPreviewCandles.value = []
   customPreviewFactors.value = []
-}
-
-function defaultFactorSource() {
-  return `def compute(candles, params):
-    n = int(params.get("n", 5))
-    result = []
-    for index, row in enumerate(candles):
-        if index < n:
-            result.append({"time": row["time"], "value": None})
-            continue
-        previous = candles[index - n]["close"]
-        value = (row["close"] - previous) / previous if previous else None
-        result.append({"time": row["time"], "value": value})
-    return result
-`
-}
-
-function defaultStrategySource() {
-  return `def generate_signals(ctx, params):
-    buy_size = int(params.get("buy_size", 100))
-    threshold = float(params.get("threshold", 0.01))
-    first = ctx.factor("first_derivative", {"n": int(params.get("n", 5))})
-    signals = []
-    holding = False
-
-    for index, row in enumerate(ctx.candles):
-        value = first[index]["value"]
-        if value is None:
-            continue
-        if not holding and value > threshold:
-            signals.append({
-                "time": row["time"],
-                "action": "buy",
-                "quantity": buy_size,
-                "reason": "一阶导向上突破"
-            })
-            holding = True
-        elif holding and value < 0:
-            signals.append({
-                "time": row["time"],
-                "action": "sell",
-                "quantity": buy_size,
-                "reason": "一阶导转负"
-            })
-            holding = False
-    return signals
-`
 }
 
 function selectCustomStrategy(strategy: CustomStrategy) {
@@ -926,16 +857,6 @@ async function runStrategyResearch() {
   }
 }
 
-function formatPct(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '-'
-  return `${(value * 100).toFixed(2)}%`
-}
-
-function formatMoney(value?: number | null) {
-  if (value === null || value === undefined || Number.isNaN(value)) return '-'
-  return value.toFixed(2)
-}
-
 watch(customPreviewPoolId, async (poolId) => {
   error.value = ''
   try {
@@ -1200,28 +1121,10 @@ onUnmounted(() => {
 
 <template>
   <main class="app-frame" :class="{ collapsed: navCollapsed }">
-    <aside class="side-nav">
-      <div class="brand">
-        <button class="icon-button" title="收起导航" @click="navCollapsed = !navCollapsed">
-          <PanelLeftClose v-if="!navCollapsed" :size="18" />
-          <Menu v-else :size="18" />
-        </button>
-        <div v-if="!navCollapsed">
-          <h1>量化研究台</h1>
-        </div>
-      </div>
-      <nav class="side-tabs">
-        <button v-for="tab in tabs" :key="tab.id" :class="{ active: activeTab === tab.id }" @click="activeTab = tab.id">
-          <component :is="tab.icon" :size="18" />
-          <span v-if="!navCollapsed">{{ tab.label }}</span>
-        </button>
-      </nav>
-    </aside>
+    <SideNav :tabs="tabs" :active-tab="activeTab" :collapsed="navCollapsed" @update:active-tab="(value) => activeTab = value as TabName" @update:collapsed="navCollapsed = $event" />
 
     <section class="content-shell">
-      <div v-if="message || error" :class="['toast', error ? 'error' : 'notice']">
-        {{ error || message }}
-      </div>
+      <ToastMessage :message="message" :error="error" />
 
       <section v-if="activeTab === 'pools'" class="tab-grid">
       <aside class="panel">
@@ -1738,19 +1641,7 @@ onUnmounted(() => {
               v-model:visible-candle-count="visibleCandleCount"
               @load-older="() => {}"
             />
-            <div v-if="strategyPreviewResult" class="strategy-result-panel">
-              <div class="summary-grid">
-                <span>收益 {{ formatPct(strategyPreviewResult.summary.total_return_pct) }}</span>
-                <span>最终资产 {{ formatMoney(strategyPreviewResult.summary.final_value) }}</span>
-                <span>交易 {{ strategyPreviewResult.summary.trade_count }}</span>
-                <span>胜率 {{ formatPct(strategyPreviewResult.summary.win_rate) }}</span>
-                <span>最大回撤 {{ formatPct(strategyPreviewResult.summary.max_drawdown_pct) }}</span>
-                <button class="ghost compact summary-action" type="button" @click="showStrategyPreviewEquity = !showStrategyPreviewEquity">
-                  {{ showStrategyPreviewEquity ? '隐藏收益曲线' : '展示收益曲线' }}
-                </button>
-              </div>
-              <EquityCurveChart v-if="showStrategyPreviewEquity" :points="strategyPreviewResult.equity_curve" />
-            </div>
+            <StrategyResultPanel v-if="strategyPreviewResult" :result="strategyPreviewResult" v-model:show-equity="showStrategyPreviewEquity" />
           </div>
           <div v-else class="empty-state">请先在左侧新建或选择一个自定义策略</div>
         </section>
@@ -1852,21 +1743,7 @@ onUnmounted(() => {
             v-model:visible-candle-count="visibleCandleCount"
             @load-older="() => {}"
           />
-          <div v-if="strategyResearchResult" class="strategy-result-panel">
-            <div class="summary-grid">
-              <span>收益 {{ formatPct(strategyResearchResult.summary.total_return_pct) }}</span>
-              <span>最终资产 {{ formatMoney(strategyResearchResult.summary.final_value) }}</span>
-              <span>现金 {{ formatMoney(strategyResearchResult.summary.cash) }}</span>
-              <span>持仓 {{ strategyResearchResult.summary.position }}</span>
-              <span>交易 {{ strategyResearchResult.summary.trade_count }}</span>
-              <span>胜率 {{ formatPct(strategyResearchResult.summary.win_rate) }}</span>
-              <span>最大回撤 {{ formatPct(strategyResearchResult.summary.max_drawdown_pct) }}</span>
-              <button class="ghost compact summary-action" type="button" @click="showStrategyResearchEquity = !showStrategyResearchEquity">
-                {{ showStrategyResearchEquity ? '隐藏收益曲线' : '展示收益曲线' }}
-              </button>
-            </div>
-            <EquityCurveChart v-if="showStrategyResearchEquity" :points="strategyResearchResult.equity_curve" />
-          </div>
+          <StrategyResultPanel v-if="strategyResearchResult" :result="strategyResearchResult" show-cash-position v-model:show-equity="showStrategyResearchEquity" />
           <div v-if="strategyResearchResult?.trades.length" class="task-table strategy-table">
             <div class="strategy-trade-row header">
               <span>买入时间</span>
