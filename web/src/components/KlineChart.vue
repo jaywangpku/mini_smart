@@ -177,7 +177,12 @@ function factorValue(point: DerivativeFactorPoint, key: FactorKey) {
 }
 
 function sessionKey(time: number) {
-  return new Date(time * 1000).toISOString().slice(0, 10)
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).format(new Date(time * 1000))
 }
 
 function vwapData() {
@@ -336,7 +341,9 @@ function render() {
   }
   if (candleChart && props.fitKey !== lastFitKey) {
     suppressOlderRequest = true
-    candleChart.timeScale().fitContent()
+    const to = Math.max(props.candles.length - 1, 0)
+    const from = Math.max(to - 159, 0)
+    candleChart.timeScale().setVisibleLogicalRange({ from, to })
     syncVisibleRange(candleChart)
     lastFitKey = props.fitKey
     window.setTimeout(() => {

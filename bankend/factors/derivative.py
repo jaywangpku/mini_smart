@@ -17,6 +17,7 @@ def compute_derivative_factors(
     symbol: str,
     n_minutes: int,
     m_minutes: int,
+    reset_daily: bool = True,
 ) -> list[DerivativeFactorPoint]:
     if n_minutes <= 0:
         raise ValueError("n_minutes 必须大于 0")
@@ -24,6 +25,9 @@ def compute_derivative_factors(
         raise ValueError("m_minutes 必须大于 0")
 
     points: list[DerivativeFactorPoint] = []
+    if not reset_daily:
+        return _compute_day(sorted(candles, key=lambda row: row["time"]), n_minutes, m_minutes)
+
     current_day: str | None = None
     day_candles: list[dict] = []
 
@@ -51,14 +55,14 @@ def _compute_day(candles: list[dict], n_minutes: int, m_minutes: int) -> list[De
         if index >= n_minutes:
             previous_close = candles[index - n_minutes]["close"]
             if previous_close:
-                first_values[index] = (candle["close"] - previous_close) / n_minutes
+                first_values[index] = (candle["close"] - previous_close) / previous_close
 
         second_value: float | None = None
         if index >= n_minutes + m_minutes:
             current_first = first_values[index]
             previous_first = first_values[index - m_minutes]
             if current_first is not None and previous_first:
-                second_value = (current_first - previous_first) / m_minutes
+                second_value = (current_first - previous_first) / previous_first
 
         points.append(
             DerivativeFactorPoint(

@@ -53,6 +53,7 @@ export type BatchSyncPayload = {
 export type SyncTask = {
   id: string
   symbol: string
+  name?: string | null
   period: string
   adjust_type: string
   status: 'queued' | 'running' | 'success' | 'failed'
@@ -89,13 +90,13 @@ export async function fetchSymbols() {
   return data
 }
 
-export async function addSymbol(symbol: string) {
-  const { data } = await http.post<SymbolRow>('/symbols', { symbol })
+export async function addSymbol(symbol: string, name?: string) {
+  const { data } = await http.post<SymbolRow>('/symbols', { symbol, name })
   return data
 }
 
-export async function setSymbolEnabled(symbol: string, enabled: boolean) {
-  const { data } = await http.patch<SymbolRow>(`/symbols/${symbol}`, { enabled })
+export async function setSymbolEnabled(symbol: string, enabled: boolean, name?: string) {
+  const { data } = await http.patch<SymbolRow>(`/symbols/${symbol}`, { enabled, name })
   return data
 }
 
@@ -109,6 +110,16 @@ export async function createPool(name: string, description?: string) {
   return data
 }
 
+export async function updatePool(poolId: string, payload: { name?: string; description?: string }) {
+  const { data } = await http.patch<PoolRow>(`/pools/${poolId}`, payload)
+  return data
+}
+
+export async function deletePool(poolId: string) {
+  const { data } = await http.delete<{ ok: boolean }>(`/pools/${poolId}`)
+  return data
+}
+
 export async function fetchPoolSymbols(poolId: string, enabledOnly = false) {
   const { data } = await http.get<PoolSymbolRow[]>(`/pools/${poolId}/symbols`, {
     params: { enabled_only: enabledOnly }
@@ -116,13 +127,18 @@ export async function fetchPoolSymbols(poolId: string, enabledOnly = false) {
   return data
 }
 
-export async function addPoolSymbol(poolId: string, symbol: string, note?: string) {
-  const { data } = await http.post<PoolSymbolRow>(`/pools/${poolId}/symbols`, { symbol, note })
+export async function addPoolSymbol(poolId: string, symbol: string, note?: string, name?: string) {
+  const { data } = await http.post<PoolSymbolRow>(`/pools/${poolId}/symbols`, { symbol, note, name })
   return data
 }
 
 export async function setPoolSymbolEnabled(poolId: string, symbol: string, enabled: boolean) {
   const { data } = await http.patch<PoolSymbolRow>(`/pools/${poolId}/symbols/${symbol}`, { enabled })
+  return data
+}
+
+export async function updatePoolSymbol(poolId: string, symbol: string, payload: { name?: string; market?: string }) {
+  const { data } = await http.patch<PoolSymbolRow>(`/pools/${poolId}/symbols/${symbol}`, payload)
   return data
 }
 

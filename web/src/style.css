@@ -248,6 +248,13 @@ h2 {
   width: min(360px, 100%);
 }
 
+.add-symbol-row {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.8fr) minmax(160px, 1.2fr) 40px;
+  gap: 8px;
+  width: min(560px, 100%);
+}
+
 input,
 select {
   width: 100%;
@@ -305,6 +312,12 @@ label {
   color: #24324a;
   border: 1px solid #cad5e2;
   background: #ffffff;
+}
+
+.submit.danger {
+  color: #b42334;
+  border: 1px solid #f0b8c0;
+  background: #fff5f6;
 }
 
 .symbol-list {
@@ -417,6 +430,12 @@ label {
   font-size: 13px;
 }
 
+.tasks-head p {
+  margin-top: 4px;
+  color: #60728a;
+  font-size: 13px;
+}
+
 .chart-wrap {
   position: relative;
   height: 520px;
@@ -428,6 +447,39 @@ label {
 .chart-stack {
   display: grid;
   gap: 8px;
+}
+
+.chart-indicator-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  border: 1px solid #dfe6f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  color: #52647b;
+  font-size: 13px;
+}
+
+.chart-indicator-bar .factor-config-title {
+  margin-right: 4px;
+}
+
+.chart-indicator-bar .indicator-option-row {
+  width: auto;
+  min-width: 112px;
+  grid-template-columns: auto auto;
+}
+
+.chart-indicator-bar .inline-param {
+  grid-template-columns: 28px 52px;
+}
+
+.chart-indicator-bar .inline-param input {
+  height: 30px;
+  padding: 0 7px;
 }
 
 .hover-table {
@@ -564,7 +616,7 @@ label {
 
 .task-row {
   display: grid;
-  grid-template-columns: 1.5fr 0.8fr 0.6fr 0.5fr 1.5fr;
+  grid-template-columns: 1.4fr 0.75fr 1fr 0.6fr 0.5fr 1.4fr;
   gap: 10px;
   align-items: center;
   min-height: 38px;
@@ -613,7 +665,7 @@ label {
 
 .pool-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 80px 56px;
+  grid-template-columns: minmax(96px, 0.8fr) minmax(160px, 1.2fr) 64px 40px 40px;
   align-items: center;
   gap: 10px;
   min-height: 42px;
@@ -628,9 +680,13 @@ label {
   font-weight: 700;
 }
 
-.pool-row input {
+.pool-row input[type='checkbox'] {
   width: 16px;
   height: 16px;
+}
+
+.pool-row .name-input {
+  height: 34px;
 }
 
 .icon-button.danger {
@@ -644,12 +700,21 @@ label {
 }
 
 .selector-grid button {
+  display: grid;
+  align-content: center;
+  gap: 2px;
   min-height: 38px;
   border: 1px solid #dce4ef;
   border-radius: 6px;
   color: #24324a;
   background: #f9fbfe;
   cursor: pointer;
+}
+
+.selector-grid small {
+  color: #60728a;
+  font-size: 11px;
+  font-weight: 400;
 }
 
 .selector-grid button.selected {
@@ -685,10 +750,6 @@ label {
   gap: 10px;
 }
 
-.bollinger-option-row {
-  grid-template-columns: minmax(0, 1fr) 128px 128px;
-}
-
 .check-row {
   display: flex;
   align-items: center;
@@ -714,6 +775,42 @@ label {
 .inline-param input {
   height: 32px;
   padding: 0 8px;
+}
+
+.param-disclosure {
+  position: relative;
+  margin-top: 0;
+}
+
+.param-disclosure summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border: 1px solid #cad5e2;
+  border-radius: 6px;
+  padding: 0 9px;
+  color: #24324a;
+  background: #ffffff;
+  cursor: pointer;
+  list-style: none;
+}
+
+.param-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.param-disclosure[open] {
+  display: grid;
+  gap: 8px;
+  min-width: 132px;
+  border: 1px solid #dfe6f0;
+  border-radius: 8px;
+  padding: 8px;
+  background: #ffffff;
+}
+
+.bollinger-disclosure[open] {
+  min-width: 150px;
 }
 
 @media (max-width: 920px) {
@@ -757,8 +854,9 @@ label {
     grid-template-columns: 1fr 0.7fr 0.7fr;
   }
 
-  .task-row span:nth-child(4),
-  .task-row span:nth-child(5) {
+  .task-row span:nth-child(3),
+  .task-row span:nth-child(5),
+  .task-row span:nth-child(6) {
     display: none;
   }
 }

@@ -34,7 +34,9 @@ class SymbolCreate(BaseModel):
 
 
 class SymbolPatch(BaseModel):
-    enabled: bool
+    enabled: Optional[bool] = None
+    name: Optional[str] = None
+    market: Optional[str] = None
 
 
 class PoolCreate(BaseModel):
@@ -49,7 +51,14 @@ class PoolPatch(BaseModel):
 
 class PoolSymbolCreate(BaseModel):
     symbol: str
+    name: Optional[str] = None
     note: Optional[str] = None
+
+
+class PoolSymbolPatch(BaseModel):
+    enabled: Optional[bool] = None
+    name: Optional[str] = None
+    market: Optional[str] = None
 
 
 class BatchSyncCreate(BaseModel):
@@ -118,7 +127,7 @@ def add_symbol(payload: SymbolCreate) -> dict:
 
 @app.patch("/api/symbols/{symbol}")
 def patch_symbol(symbol: str, payload: SymbolPatch) -> dict:
-    result = storage.set_symbol_enabled(symbol, payload.enabled)
+    result = storage.update_symbol(symbol, name=payload.name, market=payload.market, enabled=payload.enabled)
     if result is None:
         raise HTTPException(status_code=404, detail="symbol not found")
     return result
@@ -165,12 +174,20 @@ def add_pool_symbol(pool_id: str, payload: PoolSymbolCreate) -> dict:
     storage.init_db()
     if storage.get_pool(pool_id) is None:
         raise HTTPException(status_code=404, detail="pool not found")
-    return storage.add_pool_symbol(pool_id, payload.symbol, payload.note)
+    return storage.add_pool_symbol(pool_id, payload.symbol, payload.note, payload.name)
 
 
 @app.patch("/api/pools/{pool_id}/symbols/{symbol}")
-def patch_pool_symbol(pool_id: str, symbol: str, payload: SymbolPatch) -> dict:
-    result = storage.set_pool_symbol_enabled(pool_id, symbol, payload.enabled)
+def patch_pool_symbol(pool_id: str, symbol: str, payload: PoolSymbolPatch) -> dict:
+    if payload.enabled is not None:
+        result = storage.set_pool_symbol_enabled(pool_id, symbol, payload.enabled)
+    else:
+        result = storage.get_pool_symbol(pool_id, symbol)
+    if result is None:
+        raise HTTPException(status_code=404, detail="pool symbol not found")
+    if payload.name is not None or payload.market is not None:
+        storage.update_symbol(symbol, name=payload.name, market=payload.market)
+        result = storage.get_pool_symbol(pool_id, symbol)
     if result is None:
         raise HTTPException(status_code=404, detail="pool symbol not found")
     return result
@@ -295,7 +312,7 @@ def get_derivative_factor(
             start_ts=start,
             end_ts=end,
         )
-    points = compute_derivative_factors(candles, symbol=symbol, n_minutes=n, m_minutes=m)
+    points = compute_derivative_factors(candles, symbol=symbol, n_minutes=n, m_minutes=m, reset_daily=period != "day")
     return [
         {
             "time": point.time,

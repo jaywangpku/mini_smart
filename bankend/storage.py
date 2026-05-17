@@ -152,6 +152,30 @@ class Storage:
             )
         return self.get_symbol(symbol)
 
+    def update_symbol(self, symbol: str, name: str | None = None, market: str | None = None, enabled: bool | None = None) -> dict | None:
+        fields: list[str] = []
+        params: list[object] = []
+        if name is not None:
+            fields.append("name = ?")
+            params.append(name)
+        if market is not None:
+            fields.append("market = ?")
+            params.append(market)
+        if enabled is not None:
+            fields.append("enabled = ?")
+            params.append(1 if enabled else 0)
+        if not fields:
+            return self.get_symbol(symbol)
+        fields.append("updated_at = ?")
+        params.append(utc_now_iso())
+        params.append(symbol.upper())
+        with self.connect() as conn:
+            cursor = conn.execute(
+                f"UPDATE symbols SET {', '.join(fields)} WHERE symbol = ?",
+                params,
+            )
+        return self.get_symbol(symbol) if cursor.rowcount else None
+
     def get_symbol(self, symbol: str) -> dict | None:
         with self.connect() as conn:
             row = conn.execute("SELECT * FROM symbols WHERE symbol = ?", (symbol.upper(),)).fetchone()
@@ -217,8 +241,8 @@ class Storage:
             cursor = conn.execute("DELETE FROM stock_pools WHERE id = ?", (pool_id,))
             return cursor.rowcount > 0
 
-    def add_pool_symbol(self, pool_id: str, symbol: str, note: str | None = None) -> dict:
-        self.add_symbol(symbol)
+    def add_pool_symbol(self, pool_id: str, symbol: str, note: str | None = None, name: str | None = None) -> dict:
+        self.add_symbol(symbol, name=name)
         now = utc_now_iso()
         with self.connect() as conn:
             conn.execute(
@@ -356,7 +380,13 @@ class Storage:
     def list_tasks(self, limit: int = 50) -> list[dict]:
         with self.connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM sync_tasks ORDER BY created_at DESC LIMIT ?",
+                """
+                SELECT t.*, s.name
+                FROM sync_tasks t
+                LEFT JOIN symbols s ON s.symbol = t.symbol
+                ORDER BY t.created_at DESC
+                LIMIT ?
+                """,
                 (limit,),
             ).fetchall()
             return [dict(row) for row in rows]
