@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from .config import load_settings
 from .factors.custom_runner import run_custom_factor
-from .factors import compute_derivative_factors
 from .longbridge_client import LongbridgeClient
 from .models import SyncRequest
 from .storage import Storage
@@ -89,6 +88,8 @@ class CustomFactorPreview(BaseModel):
     adjust_type: str = "forward"
     params: dict = {}
     limit: int = 200
+    start: Optional[int] = None
+    end: Optional[int] = None
 
 
 class CustomStrategyCreate(BaseModel):
@@ -426,6 +427,8 @@ def preview_custom_factor(factor_id: str, payload: CustomFactorPreview) -> list[
         period=payload.period,
         adjust_type=payload.adjust_type,
         limit=max(1, min(payload.limit, 1000)),
+        start_ts=payload.start,
+        end_ts=payload.end,
     )
     params = _merged_factor_params(factor, payload.params)
     try:
@@ -552,40 +555,6 @@ def get_candles(
         start_ts=start,
         end_ts=end,
     )
-
-
-@app.get("/api/factors/derivative")
-def get_derivative_factor(
-    symbol: str,
-    period: str = "1min",
-    adjust_type: str = "forward",
-    n: int = Query(default=5, ge=1, le=240),
-    m: int = Query(default=5, ge=1, le=240),
-    limit: int = Query(default=2000, ge=1, le=20000),
-    start: Optional[int] = None,
-    end: Optional[int] = None,
-    latest_session: bool = False,
-) -> list[dict]:
-    if latest_session:
-        candles = storage.get_latest_session_candles(symbol, period, adjust_type, limit=limit)
-    else:
-        candles = storage.get_candles(
-            symbol=symbol,
-            period=period,
-            adjust_type=adjust_type,
-            limit=limit,
-            start_ts=start,
-            end_ts=end,
-        )
-    points = compute_derivative_factors(candles, symbol=symbol, n_minutes=n, m_minutes=m, reset_daily=period != "day")
-    return [
-        {
-            "time": point.time,
-            "first_derivative": point.first_derivative,
-            "second_derivative": point.second_derivative,
-        }
-        for point in points
-    ]
 
 
 @app.get("/api/factors/custom/{factor_id}/values")

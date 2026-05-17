@@ -8,7 +8,6 @@ from queue import Empty
 from typing import Any
 
 from ..factors.custom_runner import ALLOWED_BUILTINS, _normalize_points
-from ..factors import compute_derivative_factors
 from .backtest import run_backtest
 
 
@@ -55,19 +54,12 @@ class StrategyContext:
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        if code in {"first_derivative", "second_derivative"}:
-            n = int(params.get("n", params.get("N", 5)))
-            m = int(params.get("m", params.get("M", 5)))
-            points = compute_derivative_factors(self.candles, symbol="", n_minutes=n, m_minutes=m, reset_daily=False)
-            key = code
-            result = [{"time": point.time, "value": getattr(point, key)} for point in points]
-        else:
-            factor_code = code.removeprefix("custom:")
-            factor = self._custom_factors.get(factor_code)
-            if factor is None:
-                raise ValueError(f"找不到因子: {code}")
-            base = _json_object(factor.get("default_params") or "{}")
-            result = _run_factor_inline(factor["source_code"], self.candles, {**base, **params})
+        factor_code = code.removeprefix("custom:")
+        factor = self._custom_factors.get(factor_code)
+        if factor is None:
+            raise ValueError(f"找不到因子: {code}")
+        base = _json_object(factor.get("default_params") or "{}")
+        result = _run_factor_inline(factor["source_code"], self.candles, {**base, **params})
 
         self._cache[cache_key] = result
         return result

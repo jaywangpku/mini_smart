@@ -96,12 +96,6 @@ export type Candle = {
   turnover?: number | null
 }
 
-export type DerivativeFactorPoint = {
-  time: number
-  first_derivative?: number | null
-  second_derivative?: number | null
-}
-
 export type FactorValuePoint = {
   time: number
   value?: number | null
@@ -294,7 +288,7 @@ export async function deleteCustomFactor(factorId: string) {
 
 export async function previewCustomFactor(
   factorId: string,
-  payload: { symbol: string; period: string; adjust_type: string; params: Record<string, unknown>; limit: number }
+  payload: { symbol: string; period: string; adjust_type: string; params: Record<string, unknown>; limit: number; start?: number; end?: number }
 ) {
   const { data } = await http.post<FactorValuePoint[]>(`/factors/custom/${factorId}/preview`, payload)
   return data
@@ -347,6 +341,8 @@ export async function runCustomStrategy(
     adjust_type: string
     params: Record<string, unknown>
     limit: number
+    start?: number
+    end?: number
     backtest: { initial_cash: number; fee_rate: number; slippage_rate: number }
   }
 ) {
@@ -403,35 +399,6 @@ export async function fetchCandles(
 export async function fetchLatestSessionCandles(symbol: string, period: string, adjustType: string, limit = 20000) {
   const { data } = await http.get<Candle[]>('/candles', {
     params: { symbol, period, adjust_type: adjustType, limit, latest_session: true }
-  })
-  return data
-}
-
-export async function fetchDerivativeFactors(
-  symbol: string,
-  period: string,
-  adjustType: string,
-  n: number,
-  m: number,
-  limit = 2000,
-  range?: { start?: number; end?: number }
-) {
-  const { data } = await http.get<DerivativeFactorPoint[]>('/factors/derivative', {
-    params: { symbol, period, adjust_type: adjustType, n, m, limit, ...range }
-  })
-  return data
-}
-
-export async function fetchLatestSessionDerivativeFactors(
-  symbol: string,
-  period: string,
-  adjustType: string,
-  n: number,
-  m: number,
-  limit = 20000
-) {
-  const { data } = await http.get<DerivativeFactorPoint[]>('/factors/derivative', {
-    params: { symbol, period, adjust_type: adjustType, n, m, limit, latest_session: true }
   })
   return data
 }

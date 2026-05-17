@@ -14,7 +14,6 @@ import {
   fetchCustomFactors,
   fetchCustomStrategies,
   fetchCustomFactorValues,
-  fetchDerivativeFactors,
   fetchPoolSymbols,
   fetchPools,
   fetchSecurityInfo,
@@ -40,28 +39,22 @@ import {
   type SecurityInfo,
   type SecurityRow,
   type StrategyRunResult,
-  type StrategySignal,
   type SyncTask
 } from './api'
 import CodeEditor from './components/CodeEditor.vue'
+import EquityCurveChart from './components/EquityCurveChart.vue'
 import KlineChart from './components/KlineChart.vue'
 
 type TabName = 'pools' | 'sync' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies'
-type FactorKey = 'first_derivative' | 'second_derivative'
 type ChartFactorPoint = { time: number; [key: string]: number | null | undefined }
 
 const tabs: Array<{ id: TabName; label: string; icon: unknown }> = [
   { id: 'pools', label: '股票池管理', icon: Database },
   { id: 'sync', label: '数据同步', icon: Play },
-  { id: 'research', label: '因子研究', icon: BarChart3 },
   { id: 'customFactors', label: '自定义因子', icon: Code2 },
-  { id: 'strategyResearch', label: '策略研究', icon: BarChart3 },
-  { id: 'customStrategies', label: '自定义策略', icon: Code2 }
-]
-
-const factorOptions: Array<{ key: FactorKey; label: string }> = [
-  { key: 'first_derivative', label: '一阶导' },
-  { key: 'second_derivative', label: '二阶导' }
+  { id: 'research', label: '因子研究', icon: BarChart3 },
+  { id: 'customStrategies', label: '自定义策略', icon: Code2 },
+  { id: 'strategyResearch', label: '策略研究', icon: BarChart3 }
 ]
 
 const activeTab = ref<TabName>('pools')
@@ -92,16 +85,14 @@ const adjustType = ref('forward')
 const syncMode = ref<'incremental' | 'range'>('incremental')
 const start = ref('2025-01-01')
 const end = ref(localDateString())
-const factorN = ref(5)
-const factorM = ref(5)
-const selectedFactors = ref<string[]>(['first_derivative', 'second_derivative'])
+const selectedFactors = ref<string[]>([])
 const selectedCustomFactorId = ref('')
 const showNewFactorDialog = ref(false)
 const showEditFactorDialog = ref(false)
 const showParamDialog = ref(false)
 const showResearchParamDialog = ref(false)
 const editingResearchParamKey = ref('')
-const activeParamDialog = ref<'first' | 'second' | 'ma' | 'ema' | 'boll' | ''>('')
+const activeParamDialog = ref<'ma' | 'ema' | 'boll' | ''>('')
 const newFactorDraft = ref({
   code: '',
   name: '',
@@ -159,14 +150,18 @@ const strategyPreviewSlippageRate = ref(0.0002)
 const strategyPreviewCandles = ref<Candle[]>([])
 const strategyPreviewResult = ref<StrategyRunResult | null>(null)
 const strategyPreviewFitKey = ref(0)
+const showStrategyPreviewEquity = ref(false)
 const strategyResearchStrategyId = ref('')
 const strategyResearchParams = ref('{}')
 const strategyResearchCandles = ref<Candle[]>([])
 const strategyResearchResult = ref<StrategyRunResult | null>(null)
 const strategyResearchFitKey = ref(0)
+const showStrategyResearchEquity = ref(false)
 const strategyInitialCash = ref(100000)
 const strategyFeeRate = ref(0.0003)
 const strategySlippageRate = ref(0.0002)
+const strategyResearchStart = ref('')
+const strategyResearchEnd = ref('')
 const showVwap = ref(true)
 const showMa = ref(false)
 const showEma = ref(false)
@@ -192,6 +187,25 @@ function localDateString(date = new Date()) {
   return `${year}-${month}-${day}`
 }
 
+function dateStartTs(value: string) {
+  if (!value) return undefined
+  const timestamp = new Date(`${value}T00:00:00`).getTime()
+  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : undefined
+}
+
+function dateEndTs(value: string) {
+  if (!value) return undefined
+  const timestamp = new Date(`${value}T23:59:59`).getTime()
+  return Number.isFinite(timestamp) ? Math.floor(timestamp / 1000) : undefined
+}
+
+function dateRange(startValue: string, endValue: string) {
+  return {
+    start: dateStartTs(startValue),
+    end: dateEndTs(endValue)
+  }
+}
+
 const selectedPool = computed(() => pools.value.find((pool) => pool.id === selectedPoolId.value))
 const enabledPoolSymbols = computed(() => poolSymbols.value.filter((row) => row.enabled))
 const hasRunningTask = computed(() => tasks.value.some((task) => task.status === 'queued' || task.status === 'running'))
@@ -210,21 +224,14 @@ const previewFactorSeries = computed(() => [
   }
 ])
 const selectedCustomFactors = computed(() => selectedFactors.value.filter((key) => key.startsWith('custom:')))
-const selectedSystemFactors = computed(() => selectedFactors.value.filter((key): key is FactorKey => key === 'first_derivative' || key === 'second_derivative'))
 const factorSeriesMeta = computed(() => {
-  const system = factorOptions.map((factor, index) => ({
-    key: factor.key,
-    label: factor.label,
-    color: index === 0 ? '#38bdf8' : '#f97316',
-    zeroLine: true
-  }))
   const custom = enabledCustomFactors.value.map((factor, index) => ({
     key: customFactorKey(factor.id),
     label: factor.name,
     color: customFactorColor(index),
     zeroLine: true
   }))
-  return [...system, ...custom]
+  return custom
 })
 
 function setError(err: unknown, fallback: string) {
@@ -372,15 +379,6 @@ async function loadFactorValues(limit: number, range?: { start?: number; end?: n
     return point
   }
 
-  if (selectedSystemFactors.value.length) {
-    const derivative = await fetchDerivativeFactors(researchSymbol.value, period.value, adjustType.value, factorN.value, factorM.value, limit, range)
-    for (const item of derivative) {
-      const point = ensurePoint(item.time)
-      if (selectedSystemFactors.value.includes('first_derivative')) point.first_derivative = item.first_derivative
-      if (selectedSystemFactors.value.includes('second_derivative')) point.second_derivative = item.second_derivative
-    }
-  }
-
   await Promise.all(
     selectedCustomFactors.value.map(async (key) => {
       const id = customFactorIdFromKey(key)
@@ -508,6 +506,7 @@ function selectCustomStrategy(strategy: CustomStrategy) {
   }
   strategyPreviewResult.value = null
   strategyPreviewCandles.value = []
+  showStrategyPreviewEquity.value = false
 }
 
 function resetCustomStrategyForm() {
@@ -522,6 +521,7 @@ function resetCustomStrategyForm() {
   }
   strategyPreviewResult.value = null
   strategyPreviewCandles.value = []
+  showStrategyPreviewEquity.value = false
 }
 
 function openNewCustomStrategyDialog() {
@@ -612,7 +612,7 @@ function closeResearchParamDialog() {
   editingResearchParamKey.value = ''
 }
 
-function openSimpleParamDialog(type: 'first' | 'second' | 'ma' | 'ema' | 'boll') {
+function openSimpleParamDialog(type: 'ma' | 'ema' | 'boll') {
   activeParamDialog.value = type
 }
 
@@ -622,8 +622,6 @@ function closeSimpleParamDialog() {
 
 function simpleParamTitle() {
   const titles: Record<string, string> = {
-    first: '一阶导参数',
-    second: '二阶导参数',
     ma: 'MA 参数',
     ema: 'EMA 参数',
     boll: 'BOLL 参数'
@@ -841,13 +839,24 @@ async function removeCustomStrategy() {
   }
 }
 
-function strategyRunPayload(symbol: string, periodValue: string, adjustValue: string, limit: number, params: Record<string, unknown>, cash: number, fee: number, slippage: number) {
+function strategyRunPayload(
+  symbol: string,
+  periodValue: string,
+  adjustValue: string,
+  limit: number,
+  params: Record<string, unknown>,
+  cash: number,
+  fee: number,
+  slippage: number,
+  range: { start?: number; end?: number } = {}
+) {
   return {
     symbol,
     period: periodValue,
     adjust_type: adjustValue,
     params,
     limit,
+    ...range,
     backtest: {
       initial_cash: cash,
       fee_rate: fee,
@@ -878,6 +887,7 @@ async function runCustomStrategyPreview() {
     ])
     strategyPreviewCandles.value = previewCandles
     strategyPreviewResult.value = result
+    showStrategyPreviewEquity.value = false
     strategyPreviewFitKey.value += 1
   } catch (err) {
     setError(err, '试运行自定义策略失败')
@@ -889,8 +899,9 @@ async function runStrategyResearch() {
   error.value = ''
   try {
     const limit = chartLimitForPeriod(period.value)
+    const range = dateRange(strategyResearchStart.value, strategyResearchEnd.value)
     const [nextCandles, result] = await Promise.all([
-      fetchCandles(researchSymbol.value, period.value, adjustType.value, limit),
+      fetchCandles(researchSymbol.value, period.value, adjustType.value, limit, range),
       runCustomStrategy(
         strategyResearchStrategyId.value,
         strategyRunPayload(
@@ -901,12 +912,14 @@ async function runStrategyResearch() {
           parseJsonObject(strategyResearchParams.value),
           strategyInitialCash.value,
           strategyFeeRate.value,
-          strategySlippageRate.value
+          strategySlippageRate.value,
+          range
         )
       )
     ])
     strategyResearchCandles.value = nextCandles
     strategyResearchResult.value = result
+    showStrategyResearchEquity.value = false
     strategyResearchFitKey.value += 1
   } catch (err) {
     setError(err, '运行策略失败')
@@ -1167,7 +1180,7 @@ watch(selectedPoolId, async () => {
   await loadChart()
 })
 
-watch([researchSymbol, period, adjustType, factorN, factorM, selectedFactors, customFactorParamText], () => {
+watch([researchSymbol, period, adjustType, selectedFactors, customFactorParamText], () => {
   loadChart().catch((err) => setError(err, '加载图表失败'))
 }, { deep: true })
 
@@ -1706,13 +1719,6 @@ onUnmounted(() => {
                 <input v-model.number="strategyPreviewSlippageRate" type="number" min="0" step="0.0001" />
               </label>
             </div>
-            <div v-if="strategyPreviewResult" class="summary-grid">
-              <span>收益 {{ formatPct(strategyPreviewResult.summary.total_return_pct) }}</span>
-              <span>最终资产 {{ formatMoney(strategyPreviewResult.summary.final_value) }}</span>
-              <span>交易 {{ strategyPreviewResult.summary.trade_count }}</span>
-              <span>胜率 {{ formatPct(strategyPreviewResult.summary.win_rate) }}</span>
-              <span>最大回撤 {{ formatPct(strategyPreviewResult.summary.max_drawdown_pct) }}</span>
-            </div>
             <KlineChart
               v-if="strategyPreviewCandles.length"
               :candles="strategyPreviewCandles"
@@ -1732,6 +1738,19 @@ onUnmounted(() => {
               v-model:visible-candle-count="visibleCandleCount"
               @load-older="() => {}"
             />
+            <div v-if="strategyPreviewResult" class="strategy-result-panel">
+              <div class="summary-grid">
+                <span>收益 {{ formatPct(strategyPreviewResult.summary.total_return_pct) }}</span>
+                <span>最终资产 {{ formatMoney(strategyPreviewResult.summary.final_value) }}</span>
+                <span>交易 {{ strategyPreviewResult.summary.trade_count }}</span>
+                <span>胜率 {{ formatPct(strategyPreviewResult.summary.win_rate) }}</span>
+                <span>最大回撤 {{ formatPct(strategyPreviewResult.summary.max_drawdown_pct) }}</span>
+                <button class="ghost compact summary-action" type="button" @click="showStrategyPreviewEquity = !showStrategyPreviewEquity">
+                  {{ showStrategyPreviewEquity ? '隐藏收益曲线' : '展示收益曲线' }}
+                </button>
+              </div>
+              <EquityCurveChart v-if="showStrategyPreviewEquity" :points="strategyPreviewResult.equity_curve" />
+            </div>
           </div>
           <div v-else class="empty-state">请先在左侧新建或选择一个自定义策略</div>
         </section>
@@ -1781,7 +1800,15 @@ onUnmounted(() => {
               <option v-for="strategy in enabledCustomStrategies" :key="strategy.id" :value="strategy.id">{{ strategy.name }}</option>
             </select>
           </label>
-          <button class="ghost param-button" type="button" @click="openResearchStrategyParamDialog">策略参数</button>
+          <button class="ghost param-button strategy-param-button" type="button" @click="openResearchStrategyParamDialog">策略参数</button>
+          <label>
+            开始日期
+            <input v-model="strategyResearchStart" type="date" />
+          </label>
+          <label>
+            结束日期
+            <input v-model="strategyResearchEnd" type="date" />
+          </label>
           <label>
             初始资金
             <input v-model.number="strategyInitialCash" type="number" min="1" />
@@ -1807,15 +1834,6 @@ onUnmounted(() => {
               <p>{{ strategyResearchCandles.length }} 根K线 · {{ strategyResearchResult?.signals.length || 0 }} 个信号</p>
             </div>
           </div>
-          <div v-if="strategyResearchResult" class="summary-grid">
-            <span>收益 {{ formatPct(strategyResearchResult.summary.total_return_pct) }}</span>
-            <span>最终资产 {{ formatMoney(strategyResearchResult.summary.final_value) }}</span>
-            <span>现金 {{ formatMoney(strategyResearchResult.summary.cash) }}</span>
-            <span>持仓 {{ strategyResearchResult.summary.position }}</span>
-            <span>交易 {{ strategyResearchResult.summary.trade_count }}</span>
-            <span>胜率 {{ formatPct(strategyResearchResult.summary.win_rate) }}</span>
-            <span>最大回撤 {{ formatPct(strategyResearchResult.summary.max_drawdown_pct) }}</span>
-          </div>
           <KlineChart
             :candles="strategyResearchCandles"
             :factors="[]"
@@ -1834,6 +1852,21 @@ onUnmounted(() => {
             v-model:visible-candle-count="visibleCandleCount"
             @load-older="() => {}"
           />
+          <div v-if="strategyResearchResult" class="strategy-result-panel">
+            <div class="summary-grid">
+              <span>收益 {{ formatPct(strategyResearchResult.summary.total_return_pct) }}</span>
+              <span>最终资产 {{ formatMoney(strategyResearchResult.summary.final_value) }}</span>
+              <span>现金 {{ formatMoney(strategyResearchResult.summary.cash) }}</span>
+              <span>持仓 {{ strategyResearchResult.summary.position }}</span>
+              <span>交易 {{ strategyResearchResult.summary.trade_count }}</span>
+              <span>胜率 {{ formatPct(strategyResearchResult.summary.win_rate) }}</span>
+              <span>最大回撤 {{ formatPct(strategyResearchResult.summary.max_drawdown_pct) }}</span>
+              <button class="ghost compact summary-action" type="button" @click="showStrategyResearchEquity = !showStrategyResearchEquity">
+                {{ showStrategyResearchEquity ? '隐藏收益曲线' : '展示收益曲线' }}
+              </button>
+            </div>
+            <EquityCurveChart v-if="showStrategyResearchEquity" :points="strategyResearchResult.equity_curve" />
+          </div>
           <div v-if="strategyResearchResult?.trades.length" class="task-table strategy-table">
             <div class="strategy-trade-row header">
               <span>买入时间</span>
@@ -2035,14 +2068,6 @@ onUnmounted(() => {
             <BarChart3 :size="17" />
             <span>{{ simpleParamTitle() }}</span>
           </div>
-          <label v-if="activeParamDialog === 'first'">
-            步长
-            <input v-model.number="factorN" type="number" min="1" max="240" />
-          </label>
-          <label v-if="activeParamDialog === 'second'">
-            步长
-            <input v-model.number="factorM" type="number" min="1" max="240" />
-          </label>
           <label v-if="activeParamDialog === 'ma'">
             周期
             <input v-model.number="maPeriod" type="number" min="1" max="240" />
@@ -2107,22 +2132,6 @@ onUnmounted(() => {
         </label>
         <div class="factor-picker">
           <div class="factor-config-title">因子指标</div>
-          <div class="factor-group-title">系统预设</div>
-          <div v-for="factor in factorOptions" :key="factor.key" class="factor-option-row">
-            <label class="check-row">
-              <input v-model="selectedFactors" type="checkbox" :value="factor.key" />
-              {{ factor.label }}
-            </label>
-            <button
-              v-if="selectedFactors.includes(factor.key)"
-              class="ghost param-button"
-              type="button"
-              @click="openSimpleParamDialog(factor.key === 'first_derivative' ? 'first' : 'second')"
-            >
-              参数配置
-            </button>
-          </div>
-          <div class="factor-group-title">自定义因子</div>
           <div v-for="factor in enabledCustomFactors" :key="factor.id" class="factor-option-row">
             <label class="check-row">
               <input v-model="selectedFactors" type="checkbox" :value="customFactorKey(factor.id)" />
@@ -2148,7 +2157,7 @@ onUnmounted(() => {
         <div class="chart-head">
           <div>
             <h2>{{ researchSymbol || '请选择股票' }} · {{ period }}</h2>
-            <p>{{ candles.length }} 根K线 · {{ factors.length }} 个因子点 · 一阶导步长={{ factorN }} · 二阶导步长={{ factorM }}</p>
+            <p>{{ candles.length }} 根K线 · {{ factors.length }} 个因子点</p>
           </div>
         </div>
         <div class="chart-indicator-bar">
