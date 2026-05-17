@@ -5,6 +5,14 @@ import type { Candle } from '../api'
 
 type FactorPoint = { time: number; [key: string]: number | null | undefined }
 type FactorSeriesMeta = { key: string; label: string; color: string; zeroLine?: boolean }
+export type TradeSignal = {
+  time: number
+  action: 'buy' | 'sell'
+  quantity: number
+  price?: number | null
+  executed_quantity?: number | null
+  reason?: string
+}
 
 const props = defineProps<{
   candles: Candle[]
@@ -21,6 +29,7 @@ const props = defineProps<{
   bollingerPeriod: number
   bollingerMultiplier: number
   visibleCandleCount: number
+  tradeSignals?: TradeSignal[]
 }>()
 
 const emit = defineEmits<{
@@ -60,9 +69,19 @@ let suppressOlderRequest = false
 
 const candleByTime = computed(() => new Map(props.candles.map((item) => [item.time, item])))
 const factorByTime = computed(() => new Map(props.factors.map((item) => [item.time, item])))
+const signalByTime = computed(() => {
+  const result = new Map<number, TradeSignal[]>()
+  for (const signal of props.tradeSignals || []) {
+    const list = result.get(signal.time) || []
+    list.push(signal)
+    result.set(signal.time, list)
+  }
+  return result
+})
 const selectedTime = computed(() => hoverTime.value ?? props.candles.at(-1)?.time ?? null)
 const selectedCandle = computed(() => (selectedTime.value ? candleByTime.value.get(selectedTime.value) : undefined))
 const selectedFactor = computed(() => (selectedTime.value ? factorByTime.value.get(selectedTime.value) : undefined))
+const selectedSignals = computed(() => (selectedTime.value ? signalByTime.value.get(selectedTime.value) || [] : []))
 const vwapByTime = computed(() => new Map(vwapData().map((item) => [item.time as number, item.value])))
 const selectedVwap = computed(() => (selectedTime.value ? vwapByTime.value.get(selectedTime.value) : undefined))
 const maByTime = computed(() => new Map(movingAverageData(props.maPeriod).map((item) => [item.time as number, item.value])))
@@ -322,6 +341,16 @@ function bollingerData(period: number, multiplier: number) {
   return result
 }
 
+function signalMarkers() {
+  return (props.tradeSignals || []).map((signal) => ({
+    time: signal.time as UTCTimestamp,
+    position: signal.action === 'buy' ? 'belowBar' : 'aboveBar',
+    color: signal.action === 'buy' ? '#22c55e' : '#f43f5e',
+    shape: signal.action === 'buy' ? 'arrowUp' : 'arrowDown',
+    text: `${signal.action === 'buy' ? '买' : '卖'} ${formatVolume(signal.executed_quantity || signal.quantity)}`
+  }))
+}
+
 function syncCrosshair(time: number | null, source?: IChartApi) {
   if (syncingCrosshair) return
   hoverTime.value = time
@@ -383,6 +412,7 @@ function render() {
       }
     })
   )
+  ;(candleSeries as unknown as { setMarkers?: (markers: unknown[]) => void })?.setMarkers?.(signalMarkers())
   for (const [key, series] of factorSeries) {
     series.setData(
       props.factors.map((item) => {
@@ -592,7 +622,8 @@ watch(
     props.maPeriod,
     props.emaPeriod,
     props.bollingerPeriod,
-    props.bollingerMultiplier
+    props.bollingerMultiplier,
+    props.tradeSignals
   ],
   render,
   { deep: true }
@@ -636,6 +667,10 @@ watch(() => [props.selectedFactors, props.factorSeries], syncFactorCharts, { dee
       </span>
       <span v-for="key in selectedFactors" :key="key">
         {{ factorMeta(key).label }} {{ formatNumber(selectedFactor?.[key], 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}
+      </span>
+      <span v-for="signal in selectedSignals" :key="`${signal.time}-${signal.action}`">
+        {{ signal.action === 'buy' ? '买点' : '卖点' }} {{ formatVolume(signal.executed_quantity || signal.quantity) }} ·
+        {{ formatNumber(signal.price, 3) }}{{ signal.reason ? ` · ${signal.reason}` : '' }}
       </span>
     </div>
     <div class="price-chart-wrap">

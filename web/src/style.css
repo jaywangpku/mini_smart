@@ -1193,6 +1193,47 @@ label {
   font-weight: 700;
 }
 
+.summary-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.summary-grid span {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  background: #f8fafc;
+  font-size: var(--font-size-control);
+  font-weight: 600;
+}
+
+.strategy-table {
+  margin-top: 12px;
+}
+
+.strategy-trade-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1.4fr 0.6fr 0.7fr 0.7fr 0.7fr 0.7fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 36px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+  color: var(--text);
+  font-size: var(--font-size-control);
+}
+
+.strategy-trade-row.header {
+  border-top: 0;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: var(--font-size-small);
+  font-weight: 700;
+}
+
 .factor-group-title {
   margin-top: 4px;
   color: var(--faint);

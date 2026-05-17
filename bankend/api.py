@@ -14,6 +14,7 @@ from .factors import compute_derivative_factors
 from .longbridge_client import LongbridgeClient
 from .models import SyncRequest
 from .storage import Storage
+from .strategies import run_custom_strategy
 from .sync import TaskRunner, parse_date_or_datetime
 
 
@@ -88,6 +89,41 @@ class CustomFactorPreview(BaseModel):
     adjust_type: str = "forward"
     params: dict = {}
     limit: int = 200
+
+
+class CustomStrategyCreate(BaseModel):
+    code: str
+    name: str
+    source_code: str
+    description: Optional[str] = None
+    default_params: dict = {}
+    enabled: bool = True
+
+
+class CustomStrategyPatch(BaseModel):
+    code: Optional[str] = None
+    name: Optional[str] = None
+    source_code: Optional[str] = None
+    description: Optional[str] = None
+    default_params: Optional[dict] = None
+    enabled: Optional[bool] = None
+
+
+class BacktestOptions(BaseModel):
+    initial_cash: float = 100000
+    fee_rate: float = 0.0003
+    slippage_rate: float = 0.0002
+
+
+class CustomStrategyRun(BaseModel):
+    symbol: str
+    period: str = "1min"
+    adjust_type: str = "forward"
+    params: dict = {}
+    limit: int = 1000
+    start: Optional[int] = None
+    end: Optional[int] = None
+    backtest: BacktestOptions = BacktestOptions()
 
 
 class BatchSyncCreate(BaseModel):
@@ -306,6 +342,80 @@ def delete_custom_factor(factor_id: str) -> dict:
     return {"ok": True}
 
 
+@app.get("/api/strategies/custom")
+def list_custom_strategies(enabled_only: bool = False) -> list[dict]:
+    storage.init_db()
+    return storage.list_custom_strategies(enabled_only=enabled_only)
+
+
+@app.post("/api/strategies/custom")
+def create_custom_strategy(payload: CustomStrategyCreate) -> dict:
+    storage.init_db()
+    try:
+        return storage.create_custom_strategy(
+            code=payload.code.strip(),
+            name=payload.name.strip(),
+            description=payload.description,
+            source_code=payload.source_code,
+            default_params=json.dumps(payload.default_params, ensure_ascii=False),
+            enabled=payload.enabled,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/strategies/custom/{strategy_id}")
+def patch_custom_strategy(strategy_id: str, payload: CustomStrategyPatch) -> dict:
+    storage.init_db()
+    result = storage.update_custom_strategy(
+        strategy_id,
+        code=payload.code.strip() if payload.code is not None else None,
+        name=payload.name.strip() if payload.name is not None else None,
+        description=payload.description,
+        source_code=payload.source_code,
+        default_params=json.dumps(payload.default_params, ensure_ascii=False) if payload.default_params is not None else None,
+        enabled=payload.enabled,
+    )
+    if result is None:
+        raise HTTPException(status_code=404, detail="custom strategy not found")
+    return result
+
+
+@app.delete("/api/strategies/custom/{strategy_id}")
+def delete_custom_strategy(strategy_id: str) -> dict:
+    storage.init_db()
+    deleted = storage.delete_custom_strategy(strategy_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="custom strategy not found")
+    return {"ok": True}
+
+
+@app.post("/api/strategies/custom/{strategy_id}/run")
+def run_strategy(strategy_id: str, payload: CustomStrategyRun) -> dict:
+    strategy = storage.get_custom_strategy(strategy_id)
+    if strategy is None:
+        raise HTTPException(status_code=404, detail="custom strategy not found")
+    candles = storage.get_candles(
+        symbol=payload.symbol,
+        period=payload.period,
+        adjust_type=payload.adjust_type,
+        limit=max(1, min(payload.limit, 20000)),
+        start_ts=payload.start,
+        end_ts=payload.end,
+    )
+    params = _merged_default_params(strategy, payload.params)
+    try:
+        return run_custom_strategy(
+            strategy["source_code"],
+            candles,
+            params,
+            storage.list_custom_factors(enabled_only=True),
+            payload.backtest.dict(),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/api/factors/custom/{factor_id}/preview")
 def preview_custom_factor(factor_id: str, payload: CustomFactorPreview) -> list[dict]:
     factor = storage.get_custom_factor(factor_id)
@@ -522,4 +632,9 @@ def _json_object(raw: str) -> dict:
 
 def _merged_factor_params(factor: dict, override: dict) -> dict:
     base = _json_object(factor.get("default_params") or "{}")
+    return {**base, **override}
+
+
+def _merged_default_params(row: dict, override: dict) -> dict:
+    base = _json_object(row.get("default_params") or "{}")
     return {**base, **override}

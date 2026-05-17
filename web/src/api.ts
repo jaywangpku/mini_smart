@@ -119,6 +119,61 @@ export type CustomFactor = {
   updated_at: string
 }
 
+export type CustomStrategy = {
+  id: string
+  code: string
+  name: string
+  description?: string | null
+  source_code: string
+  default_params: string
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
+export type StrategySignal = {
+  time: number
+  action: 'buy' | 'sell'
+  quantity: number
+  price?: number | null
+  executed_quantity?: number | null
+  fee?: number | null
+  reason?: string
+}
+
+export type StrategyTrade = {
+  buy_time: number
+  sell_time: number
+  quantity: number
+  buy_price: number
+  sell_price: number
+  pnl: number
+  return_pct?: number | null
+}
+
+export type EquityPoint = {
+  time: number
+  value: number
+  cash: number
+  position: number
+}
+
+export type StrategyRunResult = {
+  signals: StrategySignal[]
+  trades: StrategyTrade[]
+  equity_curve: EquityPoint[]
+  summary: {
+    initial_cash: number
+    final_value: number
+    cash: number
+    position: number
+    total_return_pct?: number | null
+    trade_count: number
+    win_rate?: number | null
+    max_drawdown_pct?: number | null
+  }
+}
+
 export async function initDb() {
   const { data } = await http.post('/db/init')
   return data
@@ -242,6 +297,60 @@ export async function previewCustomFactor(
   payload: { symbol: string; period: string; adjust_type: string; params: Record<string, unknown>; limit: number }
 ) {
   const { data } = await http.post<FactorValuePoint[]>(`/factors/custom/${factorId}/preview`, payload)
+  return data
+}
+
+export async function fetchCustomStrategies(enabledOnly = false) {
+  const { data } = await http.get<CustomStrategy[]>('/strategies/custom', {
+    params: { enabled_only: enabledOnly }
+  })
+  return data
+}
+
+export async function createCustomStrategy(payload: {
+  code: string
+  name: string
+  description?: string
+  source_code: string
+  default_params: Record<string, unknown>
+  enabled: boolean
+}) {
+  const { data } = await http.post<CustomStrategy>('/strategies/custom', payload)
+  return data
+}
+
+export async function updateCustomStrategy(
+  strategyId: string,
+  payload: Partial<{
+    code: string
+    name: string
+    description: string
+    source_code: string
+    default_params: Record<string, unknown>
+    enabled: boolean
+  }>
+) {
+  const { data } = await http.patch<CustomStrategy>(`/strategies/custom/${strategyId}`, payload)
+  return data
+}
+
+export async function deleteCustomStrategy(strategyId: string) {
+  const { data } = await http.delete<{ ok: boolean }>(`/strategies/custom/${strategyId}`)
+  return data
+}
+
+export async function runCustomStrategy(
+  strategyId: string,
+  payload: {
+    symbol: string
+    period: string
+    adjust_type: string
+    params: Record<string, unknown>
+    limit: number
+    backtest: { initial_cash: number; fee_rate: number; slippage_rate: number }
+  }
+) {
+  const { data } = await http.post<StrategyRunResult>(`/strategies/custom/${strategyId}/run`, payload)
   return data
 }
 

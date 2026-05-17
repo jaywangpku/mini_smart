@@ -4,12 +4,15 @@ import { BarChart3, Code2, Database, Edit3, Menu, PanelLeftClose, Play, Plus, Re
 import {
   addPoolSymbol,
   createCustomFactor,
+  createCustomStrategy,
   createBatchSyncTask,
   createPool,
   deleteCustomFactor,
+  deleteCustomStrategy,
   deletePool,
   fetchCandles,
   fetchCustomFactors,
+  fetchCustomStrategies,
   fetchCustomFactorValues,
   fetchDerivativeFactors,
   fetchPoolSymbols,
@@ -19,26 +22,31 @@ import {
   initDb,
   previewCustomFactor,
   removePoolSymbol,
+  runCustomStrategy,
   searchSecurities,
   setPoolSymbolEnabled,
   syncPool,
   syncPoolAllPeriods,
   updateCustomFactor,
+  updateCustomStrategy,
   updatePool,
   updatePoolSymbol,
   type Candle,
   type CustomFactor,
+  type CustomStrategy,
   type FactorValuePoint,
   type PoolRow,
   type PoolSymbolRow,
   type SecurityInfo,
   type SecurityRow,
+  type StrategyRunResult,
+  type StrategySignal,
   type SyncTask
 } from './api'
 import CodeEditor from './components/CodeEditor.vue'
 import KlineChart from './components/KlineChart.vue'
 
-type TabName = 'pools' | 'sync' | 'research' | 'customFactors'
+type TabName = 'pools' | 'sync' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies'
 type FactorKey = 'first_derivative' | 'second_derivative'
 type ChartFactorPoint = { time: number; [key: string]: number | null | undefined }
 
@@ -46,7 +54,9 @@ const tabs: Array<{ id: TabName; label: string; icon: unknown }> = [
   { id: 'pools', label: '股票池管理', icon: Database },
   { id: 'sync', label: '数据同步', icon: Play },
   { id: 'research', label: '因子研究', icon: BarChart3 },
-  { id: 'customFactors', label: '自定义因子', icon: Code2 }
+  { id: 'customFactors', label: '自定义因子', icon: Code2 },
+  { id: 'strategyResearch', label: '策略研究', icon: BarChart3 },
+  { id: 'customStrategies', label: '自定义策略', icon: Code2 }
 ]
 
 const factorOptions: Array<{ key: FactorKey; label: string }> = [
@@ -60,6 +70,7 @@ const pools = ref<PoolRow[]>([])
 const selectedPoolId = ref('default')
 const poolSymbols = ref<PoolSymbolRow[]>([])
 const customFactors = ref<CustomFactor[]>([])
+const customStrategies = ref<CustomStrategy[]>([])
 const tasks = ref<SyncTask[]>([])
 const candles = ref<Candle[]>([])
 const factors = ref<ChartFactorPoint[]>([])
@@ -121,6 +132,41 @@ const customPreviewPeriod = ref('1min')
 const customPreviewAdjustType = ref('forward')
 const customPreviewLimit = ref(120)
 const customFactorParamText = ref<Record<string, string>>({})
+const selectedCustomStrategyId = ref('')
+const showNewStrategyDialog = ref(false)
+const showEditStrategyDialog = ref(false)
+const showStrategyParamDialog = ref(false)
+const showResearchStrategyParamDialog = ref(false)
+const newStrategyDraft = ref({ code: '', name: '', description: '' })
+const editStrategyDraft = ref({ code: '', name: '', description: '', enabled: true })
+const customStrategyForm = ref({
+  code: 'momentum_strategy',
+  name: '动量策略',
+  description: '',
+  source_code: defaultStrategySource(),
+  default_params: '{\n  "buy_size": 100,\n  "threshold": 0.01\n}',
+  enabled: true
+})
+const strategyPreviewPoolId = ref('default')
+const strategyPreviewPoolSymbols = ref<PoolSymbolRow[]>([])
+const strategyPreviewSymbol = ref('')
+const strategyPreviewPeriod = ref('1min')
+const strategyPreviewAdjustType = ref('forward')
+const strategyPreviewLimit = ref(300)
+const strategyPreviewInitialCash = ref(100000)
+const strategyPreviewFeeRate = ref(0.0003)
+const strategyPreviewSlippageRate = ref(0.0002)
+const strategyPreviewCandles = ref<Candle[]>([])
+const strategyPreviewResult = ref<StrategyRunResult | null>(null)
+const strategyPreviewFitKey = ref(0)
+const strategyResearchStrategyId = ref('')
+const strategyResearchParams = ref('{}')
+const strategyResearchCandles = ref<Candle[]>([])
+const strategyResearchResult = ref<StrategyRunResult | null>(null)
+const strategyResearchFitKey = ref(0)
+const strategyInitialCash = ref(100000)
+const strategyFeeRate = ref(0.0003)
+const strategySlippageRate = ref(0.0002)
 const showVwap = ref(true)
 const showMa = ref(false)
 const showEma = ref(false)
@@ -151,6 +197,9 @@ const enabledPoolSymbols = computed(() => poolSymbols.value.filter((row) => row.
 const hasRunningTask = computed(() => tasks.value.some((task) => task.status === 'queued' || task.status === 'running'))
 const enabledCustomFactors = computed(() => customFactors.value.filter((factor) => factor.enabled))
 const selectedCustomFactor = computed(() => customFactors.value.find((factor) => factor.id === selectedCustomFactorId.value))
+const enabledCustomStrategies = computed(() => customStrategies.value.filter((strategy) => strategy.enabled))
+const selectedCustomStrategy = computed(() => customStrategies.value.find((strategy) => strategy.id === selectedCustomStrategyId.value))
+const selectedResearchStrategy = computed(() => customStrategies.value.find((strategy) => strategy.id === strategyResearchStrategyId.value))
 const previewFactorKey = 'custom_preview'
 const previewFactorSeries = computed(() => [
   {
@@ -220,6 +269,12 @@ async function loadPoolSymbols() {
   if (customPreviewPoolId.value === selectedPoolId.value) {
     customPreviewPoolSymbols.value = poolSymbols.value
   }
+  if (strategyPreviewPoolId.value === selectedPoolId.value) {
+    strategyPreviewPoolSymbols.value = poolSymbols.value
+  }
+  if (!strategyPreviewSymbol.value && enabledPoolSymbols.value.length) {
+    strategyPreviewSymbol.value = enabledPoolSymbols.value[0].symbol
+  }
 }
 
 async function loadCustomFactors() {
@@ -230,6 +285,18 @@ async function loadCustomFactors() {
   for (const factor of customFactors.value) {
     const key = customFactorKey(factor.id)
     if (!customFactorParamText.value[key]) customFactorParamText.value[key] = prettyJson(factor.default_params)
+  }
+}
+
+async function loadCustomStrategies() {
+  customStrategies.value = await fetchCustomStrategies()
+  if (!selectedCustomStrategyId.value && customStrategies.value.length) {
+    selectCustomStrategy(customStrategies.value[0])
+  }
+  if (!strategyResearchStrategyId.value && enabledCustomStrategies.value.length) {
+    const strategy = enabledCustomStrategies.value[0]
+    strategyResearchStrategyId.value = strategy.id
+    strategyResearchParams.value = prettyJson(strategy.default_params)
   }
 }
 
@@ -332,7 +399,7 @@ async function bootstrap() {
     await initDb()
     await loadPools()
     await loadPoolSymbols()
-    await Promise.all([loadCustomFactors(), loadTasks()])
+    await Promise.all([loadCustomFactors(), loadCustomStrategies(), loadTasks()])
     await loadChart({ resetView: true })
   } catch (err) {
     setError(err, '初始化失败')
@@ -395,6 +462,107 @@ function defaultFactorSource() {
         result.append({"time": row["time"], "value": value})
     return result
 `
+}
+
+function defaultStrategySource() {
+  return `def generate_signals(ctx, params):
+    buy_size = int(params.get("buy_size", 100))
+    threshold = float(params.get("threshold", 0.01))
+    first = ctx.factor("first_derivative", {"n": int(params.get("n", 5))})
+    signals = []
+    holding = False
+
+    for index, row in enumerate(ctx.candles):
+        value = first[index]["value"]
+        if value is None:
+            continue
+        if not holding and value > threshold:
+            signals.append({
+                "time": row["time"],
+                "action": "buy",
+                "quantity": buy_size,
+                "reason": "一阶导向上突破"
+            })
+            holding = True
+        elif holding and value < 0:
+            signals.append({
+                "time": row["time"],
+                "action": "sell",
+                "quantity": buy_size,
+                "reason": "一阶导转负"
+            })
+            holding = False
+    return signals
+`
+}
+
+function selectCustomStrategy(strategy: CustomStrategy) {
+  selectedCustomStrategyId.value = strategy.id
+  customStrategyForm.value = {
+    code: strategy.code,
+    name: strategy.name,
+    description: strategy.description || '',
+    source_code: strategy.source_code,
+    default_params: prettyJson(strategy.default_params),
+    enabled: Boolean(strategy.enabled)
+  }
+  strategyPreviewResult.value = null
+  strategyPreviewCandles.value = []
+}
+
+function resetCustomStrategyForm() {
+  selectedCustomStrategyId.value = ''
+  customStrategyForm.value = {
+    code: 'momentum_strategy',
+    name: '动量策略',
+    description: '',
+    source_code: defaultStrategySource(),
+    default_params: '{\n  "buy_size": 100,\n  "threshold": 0.01\n}',
+    enabled: true
+  }
+  strategyPreviewResult.value = null
+  strategyPreviewCandles.value = []
+}
+
+function openNewCustomStrategyDialog() {
+  newStrategyDraft.value = { code: '', name: '', description: '' }
+  showNewStrategyDialog.value = true
+}
+
+function closeNewCustomStrategyDialog() {
+  showNewStrategyDialog.value = false
+}
+
+function openEditCustomStrategyDialog() {
+  if (!selectedCustomStrategy.value) return
+  editStrategyDraft.value = {
+    code: customStrategyForm.value.code,
+    name: customStrategyForm.value.name,
+    description: customStrategyForm.value.description,
+    enabled: customStrategyForm.value.enabled
+  }
+  showEditStrategyDialog.value = true
+}
+
+function closeEditCustomStrategyDialog() {
+  showEditStrategyDialog.value = false
+}
+
+function openStrategyParamDialog() {
+  if (!selectedCustomStrategy.value) return
+  showStrategyParamDialog.value = true
+}
+
+function closeStrategyParamDialog() {
+  showStrategyParamDialog.value = false
+}
+
+function openResearchStrategyParamDialog() {
+  showResearchStrategyParamDialog.value = true
+}
+
+function closeResearchStrategyParamDialog() {
+  showResearchStrategyParamDialog.value = false
 }
 
 function openNewCustomFactorDialog() {
@@ -595,6 +763,166 @@ async function runCustomFactorPreview() {
   }
 }
 
+async function createCustomStrategyFromDialog() {
+  const code = newStrategyDraft.value.code.trim()
+  const name = newStrategyDraft.value.name.trim()
+  if (!code || !name) {
+    showToast('请填写策略编码和策略名称', 'error')
+    return
+  }
+  error.value = ''
+  try {
+    const saved = await createCustomStrategy({
+      code,
+      name,
+      description: newStrategyDraft.value.description.trim() || undefined,
+      source_code: defaultStrategySource(),
+      default_params: { buy_size: 100, threshold: 0.01 },
+      enabled: true
+    })
+    showNewStrategyDialog.value = false
+    showToast('自定义策略已创建')
+    await loadCustomStrategies()
+    selectCustomStrategy(saved)
+  } catch (err) {
+    setError(err, '创建自定义策略失败')
+  }
+}
+
+async function saveCustomStrategy() {
+  if (!selectedCustomStrategyId.value) return
+  error.value = ''
+  try {
+    const saved = await updateCustomStrategy(selectedCustomStrategyId.value, {
+      code: customStrategyForm.value.code.trim(),
+      name: customStrategyForm.value.name.trim(),
+      description: customStrategyForm.value.description.trim() || undefined,
+      source_code: customStrategyForm.value.source_code,
+      default_params: parseJsonObject(customStrategyForm.value.default_params),
+      enabled: customStrategyForm.value.enabled
+    })
+    showToast('自定义策略已保存')
+    await loadCustomStrategies()
+    selectCustomStrategy(saved)
+  } catch (err) {
+    setError(err, '保存自定义策略失败')
+  }
+}
+
+async function saveCustomStrategyMeta() {
+  if (!selectedCustomStrategyId.value) return
+  error.value = ''
+  try {
+    const saved = await updateCustomStrategy(selectedCustomStrategyId.value, {
+      code: editStrategyDraft.value.code.trim(),
+      name: editStrategyDraft.value.name.trim(),
+      description: editStrategyDraft.value.description.trim() || undefined,
+      enabled: editStrategyDraft.value.enabled
+    })
+    showEditStrategyDialog.value = false
+    showToast('策略信息已更新')
+    await loadCustomStrategies()
+    selectCustomStrategy(saved)
+  } catch (err) {
+    setError(err, '修改自定义策略失败')
+  }
+}
+
+async function removeCustomStrategy() {
+  if (!selectedCustomStrategyId.value) return
+  if (!window.confirm(`确认删除自定义策略「${customStrategyForm.value.name}」？`)) return
+  error.value = ''
+  try {
+    await deleteCustomStrategy(selectedCustomStrategyId.value)
+    resetCustomStrategyForm()
+    await loadCustomStrategies()
+  } catch (err) {
+    setError(err, '删除自定义策略失败')
+  }
+}
+
+function strategyRunPayload(symbol: string, periodValue: string, adjustValue: string, limit: number, params: Record<string, unknown>, cash: number, fee: number, slippage: number) {
+  return {
+    symbol,
+    period: periodValue,
+    adjust_type: adjustValue,
+    params,
+    limit,
+    backtest: {
+      initial_cash: cash,
+      fee_rate: fee,
+      slippage_rate: slippage
+    }
+  }
+}
+
+async function runCustomStrategyPreview() {
+  if (!selectedCustomStrategyId.value || !strategyPreviewSymbol.value) return
+  error.value = ''
+  try {
+    const [previewCandles, result] = await Promise.all([
+      fetchCandles(strategyPreviewSymbol.value, strategyPreviewPeriod.value, strategyPreviewAdjustType.value, strategyPreviewLimit.value),
+      runCustomStrategy(
+        selectedCustomStrategyId.value,
+        strategyRunPayload(
+          strategyPreviewSymbol.value,
+          strategyPreviewPeriod.value,
+          strategyPreviewAdjustType.value,
+          strategyPreviewLimit.value,
+          parseJsonObject(customStrategyForm.value.default_params),
+          strategyPreviewInitialCash.value,
+          strategyPreviewFeeRate.value,
+          strategyPreviewSlippageRate.value
+        )
+      )
+    ])
+    strategyPreviewCandles.value = previewCandles
+    strategyPreviewResult.value = result
+    strategyPreviewFitKey.value += 1
+  } catch (err) {
+    setError(err, '试运行自定义策略失败')
+  }
+}
+
+async function runStrategyResearch() {
+  if (!strategyResearchStrategyId.value || !researchSymbol.value) return
+  error.value = ''
+  try {
+    const limit = chartLimitForPeriod(period.value)
+    const [nextCandles, result] = await Promise.all([
+      fetchCandles(researchSymbol.value, period.value, adjustType.value, limit),
+      runCustomStrategy(
+        strategyResearchStrategyId.value,
+        strategyRunPayload(
+          researchSymbol.value,
+          period.value,
+          adjustType.value,
+          limit,
+          parseJsonObject(strategyResearchParams.value),
+          strategyInitialCash.value,
+          strategyFeeRate.value,
+          strategySlippageRate.value
+        )
+      )
+    ])
+    strategyResearchCandles.value = nextCandles
+    strategyResearchResult.value = result
+    strategyResearchFitKey.value += 1
+  } catch (err) {
+    setError(err, '运行策略失败')
+  }
+}
+
+function formatPct(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return `${(value * 100).toFixed(2)}%`
+}
+
+function formatMoney(value?: number | null) {
+  if (value === null || value === undefined || Number.isNaN(value)) return '-'
+  return value.toFixed(2)
+}
+
 watch(customPreviewPoolId, async (poolId) => {
   error.value = ''
   try {
@@ -603,6 +931,21 @@ watch(customPreviewPoolId, async (poolId) => {
   } catch (err) {
     setError(err, '加载测试股票池失败')
   }
+})
+
+watch(strategyPreviewPoolId, async (poolId) => {
+  error.value = ''
+  try {
+    strategyPreviewPoolSymbols.value = await fetchPoolSymbols(poolId)
+    strategyPreviewSymbol.value = strategyPreviewPoolSymbols.value[0]?.symbol || ''
+  } catch (err) {
+    setError(err, '加载策略测试股票池失败')
+  }
+})
+
+watch(strategyResearchStrategyId, (strategyId) => {
+  const strategy = customStrategies.value.find((item) => item.id === strategyId)
+  if (strategy) strategyResearchParams.value = prettyJson(strategy.default_params)
 })
 
 function openNewPoolDialog() {
@@ -1257,6 +1600,263 @@ onUnmounted(() => {
         </section>
       </section>
 
+      <section v-if="activeTab === 'customStrategies'" class="custom-factor-layout">
+        <aside class="panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>自定义策略</span>
+          </div>
+          <button class="submit secondary" @click="openNewCustomStrategyDialog">
+            <Plus :size="17" />
+            <span>新建策略</span>
+          </button>
+          <div class="custom-factor-list">
+            <button
+              v-for="strategy in customStrategies"
+              :key="strategy.id"
+              :class="{ selected: selectedCustomStrategyId === strategy.id }"
+              type="button"
+              @click="selectCustomStrategy(strategy)"
+            >
+              <strong>{{ strategy.name }}</strong>
+              <span>{{ strategy.code }} · {{ strategy.enabled ? '启用' : '停用' }}</span>
+            </button>
+          </div>
+          <div v-if="selectedCustomStrategy" class="factor-side-actions">
+            <div class="factor-side-summary">
+              <strong>{{ customStrategyForm.name }}</strong>
+              <span>{{ customStrategyForm.code }} · {{ customStrategyForm.enabled ? '启用' : '停用' }}</span>
+              <p v-if="customStrategyForm.description">{{ customStrategyForm.description }}</p>
+            </div>
+            <div class="sync-actions">
+              <button class="submit secondary" title="修改信息" @click="openEditCustomStrategyDialog">
+                <Edit3 :size="17" />
+              </button>
+              <button class="submit" title="保存代码" @click="saveCustomStrategy">
+                <Save :size="17" />
+              </button>
+              <button class="submit danger" title="删除策略" @click="removeCustomStrategy">
+                <Trash2 :size="17" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <section class="main-panel custom-factor-editor">
+          <div v-if="selectedCustomStrategy" class="factor-workbench">
+            <div class="param-strip">
+              <span>策略参数</span>
+              <code>{{ customStrategyForm.default_params.replace(/\s+/g, ' ') }}</code>
+              <button class="ghost" @click="openStrategyParamDialog">编辑参数</button>
+            </div>
+            <CodeEditor v-model="customStrategyForm.source_code" language="python" />
+            <div class="preview-config compact-preview">
+              <label>
+                股票池
+                <select v-model="strategyPreviewPoolId">
+                  <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+                </select>
+              </label>
+              <label>
+                测试股票
+                <select v-model="strategyPreviewSymbol">
+                  <option v-for="row in strategyPreviewPoolSymbols" :key="row.symbol" :value="row.symbol">
+                    {{ row.symbol }}{{ row.name ? ` · ${row.name}` : '' }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                周期
+                <select v-model="strategyPreviewPeriod">
+                  <option value="1min">1min</option>
+                  <option value="5min">5min</option>
+                  <option value="15min">15min</option>
+                  <option value="30min">30min</option>
+                  <option value="60min">60min</option>
+                  <option value="day">day</option>
+                </select>
+              </label>
+              <label>
+                复权
+                <select v-model="strategyPreviewAdjustType">
+                  <option value="forward">前复权</option>
+                  <option value="no_adjust">不复权</option>
+                </select>
+              </label>
+              <label>
+                样本数
+                <input v-model.number="strategyPreviewLimit" type="number" min="20" max="5000" />
+              </label>
+              <button class="submit secondary compact" :disabled="!selectedCustomStrategyId" @click="runCustomStrategyPreview">
+                <Play :size="16" />
+                <span>试运行</span>
+              </button>
+            </div>
+            <div class="preview-config compact-preview">
+              <label>
+                初始资金
+                <input v-model.number="strategyPreviewInitialCash" type="number" min="1" />
+              </label>
+              <label>
+                手续费率
+                <input v-model.number="strategyPreviewFeeRate" type="number" min="0" step="0.0001" />
+              </label>
+              <label>
+                滑点率
+                <input v-model.number="strategyPreviewSlippageRate" type="number" min="0" step="0.0001" />
+              </label>
+            </div>
+            <div v-if="strategyPreviewResult" class="summary-grid">
+              <span>收益 {{ formatPct(strategyPreviewResult.summary.total_return_pct) }}</span>
+              <span>最终资产 {{ formatMoney(strategyPreviewResult.summary.final_value) }}</span>
+              <span>交易 {{ strategyPreviewResult.summary.trade_count }}</span>
+              <span>胜率 {{ formatPct(strategyPreviewResult.summary.win_rate) }}</span>
+              <span>最大回撤 {{ formatPct(strategyPreviewResult.summary.max_drawdown_pct) }}</span>
+            </div>
+            <KlineChart
+              v-if="strategyPreviewCandles.length"
+              :candles="strategyPreviewCandles"
+              :factors="[]"
+              :selected-factors="[]"
+              :factor-series="[]"
+              :fit-key="strategyPreviewFitKey"
+              :show-vwap="showVwap"
+              :show-ma="false"
+              :show-ema="false"
+              :show-bollinger="false"
+              :ma-period="maPeriod"
+              :ema-period="emaPeriod"
+              :bollinger-period="bollingerPeriod"
+              :bollinger-multiplier="bollingerMultiplier"
+              :trade-signals="strategyPreviewResult?.signals || []"
+              v-model:visible-candle-count="visibleCandleCount"
+              @load-older="() => {}"
+            />
+          </div>
+          <div v-else class="empty-state">请先在左侧新建或选择一个自定义策略</div>
+        </section>
+      </section>
+
+      <section v-if="activeTab === 'strategyResearch'" class="research-layout">
+        <aside class="panel research-controls">
+          <div class="panel-title">
+            <BarChart3 :size="17" />
+            <span>策略研究</span>
+          </div>
+          <label>
+            股票池
+            <select v-model="selectedPoolId">
+              <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+            </select>
+          </label>
+          <label>
+            股票
+            <select v-model="researchSymbol">
+              <option v-for="row in enabledPoolSymbols" :key="row.symbol" :value="row.symbol">
+                {{ row.symbol }}{{ row.name ? ` · ${row.name}` : '' }}
+              </option>
+            </select>
+          </label>
+          <label>
+            周期
+            <select v-model="period">
+              <option value="1min">1min</option>
+              <option value="5min">5min</option>
+              <option value="15min">15min</option>
+              <option value="30min">30min</option>
+              <option value="60min">60min</option>
+              <option value="day">day</option>
+            </select>
+          </label>
+          <label>
+            复权
+            <select v-model="adjustType">
+              <option value="forward">前复权</option>
+              <option value="no_adjust">不复权</option>
+            </select>
+          </label>
+          <label>
+            策略
+            <select v-model="strategyResearchStrategyId">
+              <option v-for="strategy in enabledCustomStrategies" :key="strategy.id" :value="strategy.id">{{ strategy.name }}</option>
+            </select>
+          </label>
+          <button class="ghost param-button" type="button" @click="openResearchStrategyParamDialog">策略参数</button>
+          <label>
+            初始资金
+            <input v-model.number="strategyInitialCash" type="number" min="1" />
+          </label>
+          <label>
+            手续费率
+            <input v-model.number="strategyFeeRate" type="number" min="0" step="0.0001" />
+          </label>
+          <label>
+            滑点率
+            <input v-model.number="strategySlippageRate" type="number" min="0" step="0.0001" />
+          </label>
+          <button class="submit" :disabled="!strategyResearchStrategyId || !researchSymbol" @click="runStrategyResearch">
+            <Play :size="17" />
+            <span>运行策略</span>
+          </button>
+        </aside>
+
+        <section class="main-panel research-panel">
+          <div class="chart-head">
+            <div>
+              <h2>{{ selectedResearchStrategy?.name || '请选择策略' }} · {{ researchSymbol || '请选择股票' }}</h2>
+              <p>{{ strategyResearchCandles.length }} 根K线 · {{ strategyResearchResult?.signals.length || 0 }} 个信号</p>
+            </div>
+          </div>
+          <div v-if="strategyResearchResult" class="summary-grid">
+            <span>收益 {{ formatPct(strategyResearchResult.summary.total_return_pct) }}</span>
+            <span>最终资产 {{ formatMoney(strategyResearchResult.summary.final_value) }}</span>
+            <span>现金 {{ formatMoney(strategyResearchResult.summary.cash) }}</span>
+            <span>持仓 {{ strategyResearchResult.summary.position }}</span>
+            <span>交易 {{ strategyResearchResult.summary.trade_count }}</span>
+            <span>胜率 {{ formatPct(strategyResearchResult.summary.win_rate) }}</span>
+            <span>最大回撤 {{ formatPct(strategyResearchResult.summary.max_drawdown_pct) }}</span>
+          </div>
+          <KlineChart
+            :candles="strategyResearchCandles"
+            :factors="[]"
+            :selected-factors="[]"
+            :factor-series="[]"
+            :fit-key="strategyResearchFitKey"
+            :show-vwap="showVwap"
+            :show-ma="showMa"
+            :show-ema="showEma"
+            :show-bollinger="showBollinger"
+            :ma-period="maPeriod"
+            :ema-period="emaPeriod"
+            :bollinger-period="bollingerPeriod"
+            :bollinger-multiplier="bollingerMultiplier"
+            :trade-signals="strategyResearchResult?.signals || []"
+            v-model:visible-candle-count="visibleCandleCount"
+            @load-older="() => {}"
+          />
+          <div v-if="strategyResearchResult?.trades.length" class="task-table strategy-table">
+            <div class="strategy-trade-row header">
+              <span>买入时间</span>
+              <span>卖出时间</span>
+              <span>数量</span>
+              <span>买入价</span>
+              <span>卖出价</span>
+              <span>盈亏</span>
+              <span>收益率</span>
+            </div>
+            <div v-for="trade in strategyResearchResult.trades.slice(-20).reverse()" :key="`${trade.buy_time}-${trade.sell_time}`" class="strategy-trade-row">
+              <span>{{ new Date(trade.buy_time * 1000).toLocaleString() }}</span>
+              <span>{{ new Date(trade.sell_time * 1000).toLocaleString() }}</span>
+              <span>{{ trade.quantity }}</span>
+              <span>{{ formatMoney(trade.buy_price) }}</span>
+              <span>{{ formatMoney(trade.sell_price) }}</span>
+              <span>{{ formatMoney(trade.pnl) }}</span>
+              <span>{{ formatPct(trade.return_pct) }}</span>
+            </div>
+          </div>
+        </section>
+      </section>
+
       <div v-if="showNewFactorDialog" class="modal-backdrop" @click.self="closeNewCustomFactorDialog">
         <section class="modal-panel">
           <div class="panel-title">
@@ -1317,6 +1917,66 @@ onUnmounted(() => {
         </section>
       </div>
 
+      <div v-if="showNewStrategyDialog" class="modal-backdrop" @click.self="closeNewCustomStrategyDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>新建自定义策略</span>
+          </div>
+          <label>
+            策略编码
+            <input v-model="newStrategyDraft.code" placeholder="例如 momentum_strategy" @keyup.enter="createCustomStrategyFromDialog" />
+          </label>
+          <label>
+            策略名称
+            <input v-model="newStrategyDraft.name" placeholder="例如 动量策略" @keyup.enter="createCustomStrategyFromDialog" />
+          </label>
+          <label>
+            描述
+            <textarea v-model="newStrategyDraft.description" placeholder="可选"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeNewCustomStrategyDialog">取消</button>
+            <button class="submit compact" @click="createCustomStrategyFromDialog">
+              <Plus :size="16" />
+              <span>创建</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showEditStrategyDialog" class="modal-backdrop" @click.self="closeEditCustomStrategyDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>修改策略信息</span>
+          </div>
+          <label>
+            策略编码
+            <input v-model="editStrategyDraft.code" placeholder="例如 momentum_strategy" />
+          </label>
+          <label>
+            策略名称
+            <input v-model="editStrategyDraft.name" placeholder="例如 动量策略" />
+          </label>
+          <label>
+            描述
+            <textarea v-model="editStrategyDraft.description" placeholder="可选"></textarea>
+          </label>
+          <label class="check-row custom-enabled">
+            <input v-model="editStrategyDraft.enabled" type="checkbox" />
+            启用
+          </label>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeEditCustomStrategyDialog">取消</button>
+            <button class="submit compact" @click="saveCustomStrategyMeta">
+              <Save :size="16" />
+              <span>保存</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
       <div v-if="showParamDialog" class="modal-backdrop" @click.self="closeParamDialog">
         <section class="modal-panel param-modal">
           <div class="panel-title">
@@ -1326,6 +1986,32 @@ onUnmounted(() => {
           <CodeEditor v-model="customFactorForm.default_params" language="json" />
           <div class="modal-actions">
             <button class="ghost" @click="closeParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showStrategyParamDialog" class="modal-backdrop" @click.self="closeStrategyParamDialog">
+        <section class="modal-panel param-modal">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>编辑策略参数 JSON</span>
+          </div>
+          <CodeEditor v-model="customStrategyForm.default_params" language="json" />
+          <div class="modal-actions">
+            <button class="ghost" @click="closeStrategyParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showResearchStrategyParamDialog" class="modal-backdrop" @click.self="closeResearchStrategyParamDialog">
+        <section class="modal-panel param-modal">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>策略研究参数 JSON</span>
+          </div>
+          <CodeEditor v-model="strategyResearchParams" language="json" />
+          <div class="modal-actions">
+            <button class="ghost" @click="closeResearchStrategyParamDialog">完成</button>
           </div>
         </section>
       </div>
