@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { LineStyle, createChart, type IChartApi, type ISeriesApi, type UTCTimestamp } from 'lightweight-charts'
-import type { Candle, DerivativeFactorPoint } from '../api'
+import type { Candle } from '../api'
 
-type FactorKey = 'first_derivative' | 'second_derivative'
+type FactorPoint = { time: number; [key: string]: number | null | undefined }
+type FactorSeriesMeta = { key: string; label: string; color: string; zeroLine?: boolean }
 
 const props = defineProps<{
   candles: Candle[]
-  factors: DerivativeFactorPoint[]
-  selectedFactors: FactorKey[]
+  factors: FactorPoint[]
+  selectedFactors: string[]
+  factorSeries: FactorSeriesMeta[]
   fitKey: number
   showVwap: boolean
   showMa: boolean
@@ -26,11 +28,6 @@ const emit = defineEmits<{
   'update:visibleCandleCount': [value: number]
 }>()
 
-const factorDefs: Record<FactorKey, { label: string; color: string }> = {
-  first_derivative: { label: '一阶导', color: '#38bdf8' },
-  second_derivative: { label: '二阶导', color: '#f97316' }
-}
-
 const chartTheme = {
   background: '#0f172a',
   text: '#cbd5e1',
@@ -40,7 +37,7 @@ const chartTheme = {
 }
 
 const candleHost = ref<HTMLDivElement | null>(null)
-const factorHosts = new Map<FactorKey, HTMLDivElement>()
+const factorHosts = new Map<string, HTMLDivElement>()
 const hoverTime = ref<number | null>(null)
 const sizeStep = ref(20)
 const moveStep = ref(40)
@@ -53,8 +50,8 @@ let bollUpperSeries: ISeriesApi<'Line'> | undefined
 let bollMiddleSeries: ISeriesApi<'Line'> | undefined
 let bollLowerSeries: ISeriesApi<'Line'> | undefined
 let volumeSeries: ISeriesApi<'Histogram'> | undefined
-let factorCharts = new Map<FactorKey, IChartApi>()
-let factorSeries = new Map<FactorKey, ISeriesApi<'Line'>>()
+let factorCharts = new Map<string, IChartApi>()
+let factorSeries = new Map<string, ISeriesApi<'Line'>>()
 let resizeObserver: ResizeObserver | undefined
 let syncingRange = false
 let syncingCrosshair = false
@@ -85,9 +82,9 @@ const bollingerByTime = computed(() => {
 })
 const selectedBollinger = computed(() => (selectedTime.value ? bollingerByTime.value.get(selectedTime.value) : undefined))
 const factorPercentiles = computed(() => {
-  const result = new Map<FactorKey, Map<number, number>>()
+  const result = new Map<string, Map<number, number>>()
 
-  for (const key of Object.keys(factorDefs) as FactorKey[]) {
+  for (const key of props.selectedFactors) {
     const values = props.factors
       .map((item) => ({ time: item.time, value: item[key] }))
       .filter((item): item is { time: number; value: number } => typeof item.value === 'number' && Number.isFinite(item.value))
@@ -146,12 +143,16 @@ function formatPercentile(value?: number | null) {
   return `${(value * 100).toFixed(1)}%`
 }
 
-function percentileFor(key: FactorKey) {
+function percentileFor(key: string) {
   if (!selectedTime.value) return null
   return factorPercentiles.value.get(key)?.get(selectedTime.value) ?? null
 }
 
-function setFactorHost(key: FactorKey, element: Element | unknown | null) {
+function factorMeta(key: string) {
+  return props.factorSeries.find((item) => item.key === key) ?? { key, label: key, color: '#38bdf8', zeroLine: true }
+}
+
+function setFactorHost(key: string, element: Element | unknown | null) {
   if (element instanceof HTMLDivElement) {
     factorHosts.set(key, element)
   } else {
@@ -225,7 +226,7 @@ function resizeVisibleCount(nextCount: number) {
   setPrimaryVisibleRange(to - count + 1, to)
 }
 
-function factorValue(point: DerivativeFactorPoint, key: FactorKey) {
+function factorValue(point: FactorPoint, key: string) {
   return point[key]
 }
 
@@ -406,7 +407,8 @@ function render() {
   }
 }
 
-function createFactorChart(key: FactorKey, host: HTMLDivElement) {
+function createFactorChart(key: string, host: HTMLDivElement) {
+  const meta = factorMeta(key)
   const chart = createChart(host, {
     autoSize: true,
     layout: {
@@ -431,18 +433,20 @@ function createFactorChart(key: FactorKey, host: HTMLDivElement) {
     }
   })
   const series = chart.addLineSeries({
-    color: factorDefs[key].color,
+    color: meta.color,
     lineWidth: 2,
-    title: factorDefs[key].label
+    title: meta.label
   })
-  series.createPriceLine({
-    price: 0,
-    color: chartTheme.zero,
-    lineWidth: 1,
-    lineStyle: LineStyle.Solid,
-    axisLabelVisible: true,
-    title: '0'
-  })
+  if (meta.zeroLine) {
+    series.createPriceLine({
+      price: 0,
+      color: chartTheme.zero,
+      lineWidth: 1,
+      lineStyle: LineStyle.Solid,
+      axisLabelVisible: true,
+      title: '0'
+    })
+  }
   factorCharts.set(key, chart)
   factorSeries.set(key, series)
   resizeObserver?.observe(host)
@@ -593,7 +597,7 @@ watch(
   render,
   { deep: true }
 )
-watch(() => props.selectedFactors, syncFactorCharts, { deep: true })
+watch(() => [props.selectedFactors, props.factorSeries], syncFactorCharts, { deep: true })
 </script>
 
 <template>
@@ -631,7 +635,7 @@ watch(() => props.selectedFactors, syncFactorCharts, { deep: true })
         {{ formatNumber(selectedBollinger?.lower, 3) }}
       </span>
       <span v-for="key in selectedFactors" :key="key">
-        {{ factorDefs[key].label }} {{ formatNumber(selectedFactor?.[key], 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}
+        {{ factorMeta(key).label }} {{ formatNumber(selectedFactor?.[key], 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}
       </span>
     </div>
     <div class="price-chart-wrap">
@@ -640,7 +644,7 @@ watch(() => props.selectedFactors, syncFactorCharts, { deep: true })
     </div>
     <div v-for="key in selectedFactors" :key="key" class="factor-panel">
       <div class="factor-panel-title">
-        <span><i :style="{ background: factorDefs[key].color }"></i>{{ factorDefs[key].label }}</span>
+        <span><i :style="{ background: factorMeta(key).color }"></i>{{ factorMeta(key).label }}</span>
         <span>{{ formatNumber(selectedFactor?.[key], 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}</span>
       </div>
       <div :ref="(el) => setFactorHost(key, el)" class="factor-chart"></div>

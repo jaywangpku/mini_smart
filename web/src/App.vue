@@ -1,41 +1,52 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { BarChart3, Database, Menu, PanelLeftClose, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
+import { BarChart3, Code2, Database, Edit3, Menu, PanelLeftClose, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
 import {
   addPoolSymbol,
+  createCustomFactor,
   createBatchSyncTask,
   createPool,
+  deleteCustomFactor,
   deletePool,
   fetchCandles,
+  fetchCustomFactors,
+  fetchCustomFactorValues,
   fetchDerivativeFactors,
   fetchPoolSymbols,
   fetchPools,
   fetchSecurityInfo,
   fetchTasks,
   initDb,
+  previewCustomFactor,
   removePoolSymbol,
   searchSecurities,
   setPoolSymbolEnabled,
   syncPool,
+  syncPoolAllPeriods,
+  updateCustomFactor,
   updatePool,
   updatePoolSymbol,
   type Candle,
-  type DerivativeFactorPoint,
+  type CustomFactor,
+  type FactorValuePoint,
   type PoolRow,
   type PoolSymbolRow,
   type SecurityInfo,
   type SecurityRow,
   type SyncTask
 } from './api'
+import CodeEditor from './components/CodeEditor.vue'
 import KlineChart from './components/KlineChart.vue'
 
-type TabName = 'pools' | 'sync' | 'research'
+type TabName = 'pools' | 'sync' | 'research' | 'customFactors'
 type FactorKey = 'first_derivative' | 'second_derivative'
+type ChartFactorPoint = { time: number; [key: string]: number | null | undefined }
 
 const tabs: Array<{ id: TabName; label: string; icon: unknown }> = [
   { id: 'pools', label: '股票池管理', icon: Database },
   { id: 'sync', label: '数据同步', icon: Play },
-  { id: 'research', label: '因子研究', icon: BarChart3 }
+  { id: 'research', label: '因子研究', icon: BarChart3 },
+  { id: 'customFactors', label: '自定义因子', icon: Code2 }
 ]
 
 const factorOptions: Array<{ key: FactorKey; label: string }> = [
@@ -48,13 +59,16 @@ const navCollapsed = ref(false)
 const pools = ref<PoolRow[]>([])
 const selectedPoolId = ref('default')
 const poolSymbols = ref<PoolSymbolRow[]>([])
+const customFactors = ref<CustomFactor[]>([])
 const tasks = ref<SyncTask[]>([])
 const candles = ref<Candle[]>([])
-const factors = ref<DerivativeFactorPoint[]>([])
+const factors = ref<ChartFactorPoint[]>([])
 const selectedSymbols = ref<string[]>([])
 const researchSymbol = ref('')
-const newPoolName = ref('')
-const newPoolDescription = ref('')
+const showNewPoolDialog = ref(false)
+const showEditPoolDialog = ref(false)
+const newPoolDraft = ref({ name: '', description: '' })
+const editPoolDraft = ref({ name: '', description: '' })
 const newSymbol = ref('MSTU.US')
 const newSymbolName = ref('')
 const securityMarket = ref('US')
@@ -62,15 +76,51 @@ const securityQuery = ref('MSTU')
 const securityResults = ref<SecurityRow[]>([])
 const selectedSecurity = ref<SecurityInfo | null>(null)
 const searchingSecurities = ref(false)
-const editPoolName = ref('')
-const editPoolDescription = ref('')
 const period = ref('1min')
 const adjustType = ref('forward')
+const syncMode = ref<'incremental' | 'range'>('incremental')
 const start = ref('2025-01-01')
 const end = ref(localDateString())
 const factorN = ref(5)
 const factorM = ref(5)
-const selectedFactors = ref<FactorKey[]>(['first_derivative', 'second_derivative'])
+const selectedFactors = ref<string[]>(['first_derivative', 'second_derivative'])
+const selectedCustomFactorId = ref('')
+const showNewFactorDialog = ref(false)
+const showEditFactorDialog = ref(false)
+const showParamDialog = ref(false)
+const showResearchParamDialog = ref(false)
+const editingResearchParamKey = ref('')
+const activeParamDialog = ref<'first' | 'second' | 'ma' | 'ema' | 'boll' | ''>('')
+const newFactorDraft = ref({
+  code: '',
+  name: '',
+  description: ''
+})
+const editFactorDraft = ref({
+  code: '',
+  name: '',
+  description: '',
+  enabled: true
+})
+const customFactorForm = ref({
+  code: 'my_factor',
+  name: '我的因子',
+  description: '',
+  source_code: defaultFactorSource(),
+  default_params: '{\n  "n": 5\n}',
+  enabled: true
+})
+const customFactorPreview = ref<FactorValuePoint[]>([])
+const customPreviewCandles = ref<Candle[]>([])
+const customPreviewFactors = ref<ChartFactorPoint[]>([])
+const customPreviewFitKey = ref(0)
+const customPreviewSymbol = ref('')
+const customPreviewPoolId = ref('default')
+const customPreviewPoolSymbols = ref<PoolSymbolRow[]>([])
+const customPreviewPeriod = ref('1min')
+const customPreviewAdjustType = ref('forward')
+const customPreviewLimit = ref(120)
+const customFactorParamText = ref<Record<string, string>>({})
 const showVwap = ref(true)
 const showMa = ref(false)
 const showEma = ref(false)
@@ -86,6 +136,7 @@ const reachedHistoryStart = ref(false)
 const loading = ref(false)
 const message = ref('')
 const error = ref('')
+let toastTimer: number | undefined
 let timer: number | undefined
 
 function localDateString(date = new Date()) {
@@ -98,9 +149,52 @@ function localDateString(date = new Date()) {
 const selectedPool = computed(() => pools.value.find((pool) => pool.id === selectedPoolId.value))
 const enabledPoolSymbols = computed(() => poolSymbols.value.filter((row) => row.enabled))
 const hasRunningTask = computed(() => tasks.value.some((task) => task.status === 'queued' || task.status === 'running'))
+const enabledCustomFactors = computed(() => customFactors.value.filter((factor) => factor.enabled))
+const selectedCustomFactor = computed(() => customFactors.value.find((factor) => factor.id === selectedCustomFactorId.value))
+const previewFactorKey = 'custom_preview'
+const previewFactorSeries = computed(() => [
+  {
+    key: previewFactorKey,
+    label: selectedCustomFactor.value?.name || '自定义因子',
+    color: '#a78bfa',
+    zeroLine: true
+  }
+])
+const selectedCustomFactors = computed(() => selectedFactors.value.filter((key) => key.startsWith('custom:')))
+const selectedSystemFactors = computed(() => selectedFactors.value.filter((key): key is FactorKey => key === 'first_derivative' || key === 'second_derivative'))
+const factorSeriesMeta = computed(() => {
+  const system = factorOptions.map((factor, index) => ({
+    key: factor.key,
+    label: factor.label,
+    color: index === 0 ? '#38bdf8' : '#f97316',
+    zeroLine: true
+  }))
+  const custom = enabledCustomFactors.value.map((factor, index) => ({
+    key: customFactorKey(factor.id),
+    label: factor.name,
+    color: customFactorColor(index),
+    zeroLine: true
+  }))
+  return [...system, ...custom]
+})
 
 function setError(err: unknown, fallback: string) {
-  error.value = err instanceof Error ? err.message : fallback
+  showToast(err instanceof Error ? err.message : fallback, 'error')
+}
+
+function showToast(text: string, type: 'success' | 'error' = 'success') {
+  if (toastTimer) window.clearTimeout(toastTimer)
+  if (type === 'success') {
+    message.value = text
+    error.value = ''
+  } else {
+    error.value = text
+    message.value = ''
+  }
+  toastTimer = window.setTimeout(() => {
+    message.value = ''
+    error.value = ''
+  }, 2600)
 }
 
 async function loadPools() {
@@ -108,7 +202,9 @@ async function loadPools() {
   if (!pools.value.some((pool) => pool.id === selectedPoolId.value)) {
     selectedPoolId.value = pools.value[0]?.id || 'default'
   }
-  syncPoolEditForm()
+  if (!pools.value.some((pool) => pool.id === customPreviewPoolId.value)) {
+    customPreviewPoolId.value = selectedPoolId.value
+  }
 }
 
 async function loadPoolSymbols() {
@@ -117,6 +213,23 @@ async function loadPoolSymbols() {
   selectedSymbols.value = selectedSymbols.value.filter((symbol) => poolSymbols.value.some((row) => row.symbol === symbol))
   if (!researchSymbol.value && enabledPoolSymbols.value.length) {
     researchSymbol.value = enabledPoolSymbols.value[0].symbol
+  }
+  if (!customPreviewSymbol.value && enabledPoolSymbols.value.length) {
+    customPreviewSymbol.value = enabledPoolSymbols.value[0].symbol
+  }
+  if (customPreviewPoolId.value === selectedPoolId.value) {
+    customPreviewPoolSymbols.value = poolSymbols.value
+  }
+}
+
+async function loadCustomFactors() {
+  customFactors.value = await fetchCustomFactors()
+  if (!selectedCustomFactorId.value && customFactors.value.length) {
+    selectCustomFactor(customFactors.value[0])
+  }
+  for (const factor of customFactors.value) {
+    const key = customFactorKey(factor.id)
+    if (!customFactorParamText.value[key]) customFactorParamText.value[key] = prettyJson(factor.default_params)
   }
 }
 
@@ -139,10 +252,8 @@ async function loadChart(options: { resetView?: boolean } = {}) {
     return
   }
   const limit = chartLimitForPeriod(period.value)
-  const [nextCandles, nextFactors] = await Promise.all([
-    fetchCandles(researchSymbol.value, period.value, adjustType.value, limit),
-    fetchDerivativeFactors(researchSymbol.value, period.value, adjustType.value, factorN.value, factorM.value, limit)
-  ])
+  const nextCandles = await fetchCandles(researchSymbol.value, period.value, adjustType.value, limit)
+  const nextFactors = await loadFactorValues(limit)
   candles.value = nextCandles
   factors.value = nextFactors
   reachedHistoryStart.value = false
@@ -165,7 +276,7 @@ async function loadOlderChartData() {
     const range = { end: endTime }
     const [olderCandles, olderFactors] = await Promise.all([
       fetchCandles(researchSymbol.value, period.value, adjustType.value, 1200, range),
-      fetchDerivativeFactors(researchSymbol.value, period.value, adjustType.value, factorN.value, factorM.value, 1200, range)
+      loadFactorValues(1200, range)
     ])
 
     if (!olderCandles.length) {
@@ -183,6 +294,37 @@ async function loadOlderChartData() {
   }
 }
 
+async function loadFactorValues(limit: number, range?: { start?: number; end?: number }) {
+  const byTime = new Map<number, ChartFactorPoint>()
+  const ensurePoint = (time: number) => {
+    let point = byTime.get(time)
+    if (!point) {
+      point = { time }
+      byTime.set(time, point)
+    }
+    return point
+  }
+
+  if (selectedSystemFactors.value.length) {
+    const derivative = await fetchDerivativeFactors(researchSymbol.value, period.value, adjustType.value, factorN.value, factorM.value, limit, range)
+    for (const item of derivative) {
+      const point = ensurePoint(item.time)
+      if (selectedSystemFactors.value.includes('first_derivative')) point.first_derivative = item.first_derivative
+      if (selectedSystemFactors.value.includes('second_derivative')) point.second_derivative = item.second_derivative
+    }
+  }
+
+  await Promise.all(
+    selectedCustomFactors.value.map(async (key) => {
+      const id = customFactorIdFromKey(key)
+      const rows = await fetchCustomFactorValues(id, researchSymbol.value, period.value, adjustType.value, parseJsonObject(customFactorParamText.value[key] || '{}'), limit, range)
+      for (const row of rows) ensurePoint(row.time)[key] = row.value ?? null
+    })
+  )
+
+  return [...byTime.values()].sort((a, b) => a.time - b.time)
+}
+
 async function bootstrap() {
   loading.value = true
   error.value = ''
@@ -190,7 +332,8 @@ async function bootstrap() {
     await initDb()
     await loadPools()
     await loadPoolSymbols()
-    await Promise.all([loadTasks(), loadChart({ resetView: true })])
+    await Promise.all([loadCustomFactors(), loadTasks()])
+    await loadChart({ resetView: true })
   } catch (err) {
     setError(err, '初始化失败')
   } finally {
@@ -198,14 +341,303 @@ async function bootstrap() {
   }
 }
 
-async function handleCreatePool() {
-  const name = newPoolName.value.trim()
-  if (!name) return
+function customFactorKey(id: string) {
+  return `custom:${id}`
+}
+
+function customFactorIdFromKey(key: string) {
+  return key.replace(/^custom:/, '')
+}
+
+function customFactorColor(index: number) {
+  return ['#a78bfa', '#22c55e', '#facc15', '#fb7185', '#2dd4bf', '#c084fc'][index % 6]
+}
+
+function prettyJson(raw: string) {
+  try {
+    return JSON.stringify(JSON.parse(raw || '{}'), null, 2)
+  } catch {
+    return raw || '{}'
+  }
+}
+
+function parseJsonObject(raw: string) {
+  const value = JSON.parse(raw || '{}')
+  if (!value || Array.isArray(value) || typeof value !== 'object') throw new Error('参数必须是 JSON object')
+  return value as Record<string, unknown>
+}
+
+function selectCustomFactor(factor: CustomFactor) {
+  selectedCustomFactorId.value = factor.id
+  customFactorForm.value = {
+    code: factor.code,
+    name: factor.name,
+    description: factor.description || '',
+    source_code: factor.source_code,
+    default_params: prettyJson(factor.default_params),
+    enabled: Boolean(factor.enabled)
+  }
+  customFactorPreview.value = []
+  customPreviewCandles.value = []
+  customPreviewFactors.value = []
+}
+
+function defaultFactorSource() {
+  return `def compute(candles, params):
+    n = int(params.get("n", 5))
+    result = []
+    for index, row in enumerate(candles):
+        if index < n:
+            result.append({"time": row["time"], "value": None})
+            continue
+        previous = candles[index - n]["close"]
+        value = (row["close"] - previous) / previous if previous else None
+        result.append({"time": row["time"], "value": value})
+    return result
+`
+}
+
+function openNewCustomFactorDialog() {
+  newFactorDraft.value = {
+    code: '',
+    name: '',
+    description: ''
+  }
+  showNewFactorDialog.value = true
+}
+
+function closeNewCustomFactorDialog() {
+  showNewFactorDialog.value = false
+}
+
+function openEditCustomFactorDialog() {
+  if (!selectedCustomFactor.value) return
+  editFactorDraft.value = {
+    code: customFactorForm.value.code,
+    name: customFactorForm.value.name,
+    description: customFactorForm.value.description,
+    enabled: customFactorForm.value.enabled
+  }
+  showEditFactorDialog.value = true
+}
+
+function closeEditCustomFactorDialog() {
+  showEditFactorDialog.value = false
+}
+
+function openParamDialog() {
+  if (!selectedCustomFactor.value) return
+  showParamDialog.value = true
+}
+
+function closeParamDialog() {
+  showParamDialog.value = false
+}
+
+function openResearchParamDialog(key: string) {
+  editingResearchParamKey.value = key
+  showResearchParamDialog.value = true
+}
+
+function closeResearchParamDialog() {
+  showResearchParamDialog.value = false
+  editingResearchParamKey.value = ''
+}
+
+function openSimpleParamDialog(type: 'first' | 'second' | 'ma' | 'ema' | 'boll') {
+  activeParamDialog.value = type
+}
+
+function closeSimpleParamDialog() {
+  activeParamDialog.value = ''
+}
+
+function simpleParamTitle() {
+  const titles: Record<string, string> = {
+    first: '一阶导参数',
+    second: '二阶导参数',
+    ma: 'MA 参数',
+    ema: 'EMA 参数',
+    boll: 'BOLL 参数'
+  }
+  return titles[activeParamDialog.value] || '参数配置'
+}
+
+function researchParamLabel(key: string) {
+  return factorSeriesMeta.value.find((item) => item.key === key)?.label || '自定义因子'
+}
+
+function compactJson(raw: string) {
+  try {
+    return JSON.stringify(JSON.parse(raw || '{}'))
+  } catch {
+    return raw || '{}'
+  }
+}
+
+function resetCustomFactorForm() {
+  selectedCustomFactorId.value = ''
+  customFactorForm.value = {
+    code: 'my_factor',
+    name: '我的因子',
+    description: '',
+    source_code: defaultFactorSource(),
+    default_params: '{\n  "n": 5\n}',
+    enabled: true
+  }
+  customFactorPreview.value = []
+}
+
+async function createCustomFactorFromDialog() {
+  const code = newFactorDraft.value.code.trim()
+  const name = newFactorDraft.value.name.trim()
+  if (!code || !name) {
+    showToast('请填写因子编码和因子名称', 'error')
+    return
+  }
   error.value = ''
   try {
-    const pool = await createPool(name, newPoolDescription.value.trim() || undefined)
-    newPoolName.value = ''
-    newPoolDescription.value = ''
+    const saved = await createCustomFactor({
+      code,
+      name,
+      description: newFactorDraft.value.description.trim() || undefined,
+      source_code: defaultFactorSource(),
+      default_params: { n: 5 },
+      enabled: true
+    })
+    showNewFactorDialog.value = false
+    showToast('自定义因子已创建')
+    await loadCustomFactors()
+    selectCustomFactor(saved)
+  } catch (err) {
+    setError(err, '创建自定义因子失败')
+  }
+}
+
+async function saveCustomFactor() {
+  error.value = ''
+  try {
+    const payload = {
+      code: customFactorForm.value.code.trim(),
+      name: customFactorForm.value.name.trim(),
+      description: customFactorForm.value.description.trim() || undefined,
+      source_code: customFactorForm.value.source_code,
+      default_params: parseJsonObject(customFactorForm.value.default_params),
+      enabled: customFactorForm.value.enabled
+    }
+    const saved = selectedCustomFactorId.value
+      ? await updateCustomFactor(selectedCustomFactorId.value, payload)
+      : await createCustomFactor(payload)
+    showToast('自定义因子已保存')
+    await loadCustomFactors()
+    selectCustomFactor(saved)
+  } catch (err) {
+    setError(err, '保存自定义因子失败')
+  }
+}
+
+async function saveCustomFactorMeta() {
+  if (!selectedCustomFactorId.value) return
+  error.value = ''
+  try {
+    const saved = await updateCustomFactor(selectedCustomFactorId.value, {
+      code: editFactorDraft.value.code.trim(),
+      name: editFactorDraft.value.name.trim(),
+      description: editFactorDraft.value.description.trim() || undefined,
+      enabled: editFactorDraft.value.enabled
+    })
+    showToast('因子信息已更新')
+    showEditFactorDialog.value = false
+    await loadCustomFactors()
+    selectCustomFactor(saved)
+  } catch (err) {
+    setError(err, '修改自定义因子失败')
+  }
+}
+
+async function removeCustomFactor() {
+  if (!selectedCustomFactorId.value) return
+  if (!window.confirm(`确认删除自定义因子「${customFactorForm.value.name}」？`)) return
+  error.value = ''
+  try {
+    await deleteCustomFactor(selectedCustomFactorId.value)
+    selectedFactors.value = selectedFactors.value.filter((key) => key !== customFactorKey(selectedCustomFactorId.value))
+    resetCustomFactorForm()
+    await loadCustomFactors()
+  } catch (err) {
+    setError(err, '删除自定义因子失败')
+  }
+}
+
+async function runCustomFactorPreview() {
+  if (!selectedCustomFactorId.value || !customPreviewSymbol.value) return
+  error.value = ''
+  try {
+    const [previewCandles, previewValues] = await Promise.all([
+      fetchCandles(customPreviewSymbol.value, customPreviewPeriod.value, customPreviewAdjustType.value, customPreviewLimit.value),
+      previewCustomFactor(selectedCustomFactorId.value, {
+      symbol: customPreviewSymbol.value,
+      period: customPreviewPeriod.value,
+      adjust_type: customPreviewAdjustType.value,
+      params: parseJsonObject(customFactorForm.value.default_params),
+      limit: customPreviewLimit.value
+      })
+    ])
+    customFactorPreview.value = previewValues
+    customPreviewCandles.value = previewCandles
+    customPreviewFactors.value = previewValues.map((row) => ({
+      time: row.time,
+      [previewFactorKey]: row.value ?? null
+    }))
+    customPreviewFitKey.value += 1
+  } catch (err) {
+    setError(err, '试运行自定义因子失败')
+  }
+}
+
+watch(customPreviewPoolId, async (poolId) => {
+  error.value = ''
+  try {
+    customPreviewPoolSymbols.value = await fetchPoolSymbols(poolId)
+    customPreviewSymbol.value = customPreviewPoolSymbols.value[0]?.symbol || ''
+  } catch (err) {
+    setError(err, '加载测试股票池失败')
+  }
+})
+
+function openNewPoolDialog() {
+  newPoolDraft.value = { name: '', description: '' }
+  showNewPoolDialog.value = true
+}
+
+function closeNewPoolDialog() {
+  showNewPoolDialog.value = false
+}
+
+function openEditPoolDialog() {
+  if (!selectedPool.value) return
+  editPoolDraft.value = {
+    name: selectedPool.value.name,
+    description: selectedPool.value.description || ''
+  }
+  showEditPoolDialog.value = true
+}
+
+function closeEditPoolDialog() {
+  showEditPoolDialog.value = false
+}
+
+async function handleCreatePool() {
+  const name = newPoolDraft.value.name.trim()
+  if (!name) {
+    showToast('请填写股票池名称', 'error')
+    return
+  }
+  error.value = ''
+  try {
+    const pool = await createPool(name, newPoolDraft.value.description.trim() || undefined)
+    showNewPoolDialog.value = false
+    showToast('股票池已创建')
     selectedPoolId.value = pool.id
     await loadPools()
     await loadPoolSymbols()
@@ -214,22 +646,21 @@ async function handleCreatePool() {
   }
 }
 
-function syncPoolEditForm() {
-  editPoolName.value = selectedPool.value?.name || ''
-  editPoolDescription.value = selectedPool.value?.description || ''
-}
-
 async function handleUpdatePool() {
   if (!selectedPoolId.value) return
-  const name = editPoolName.value.trim()
-  if (!name) return
+  const name = editPoolDraft.value.name.trim()
+  if (!name) {
+    showToast('请填写股票池名称', 'error')
+    return
+  }
   error.value = ''
   try {
     await updatePool(selectedPoolId.value, {
       name,
-      description: editPoolDescription.value.trim() || undefined
+      description: editPoolDraft.value.description.trim() || undefined
     })
-    message.value = '股票池已更新'
+    showEditPoolDialog.value = false
+    showToast('股票池已更新')
     await loadPools()
   } catch (err) {
     setError(err, '更新股票池失败')
@@ -242,7 +673,7 @@ async function handleDeletePool() {
   error.value = ''
   try {
     await deletePool(selectedPoolId.value)
-    message.value = '股票池已删除'
+    showToast('股票池已删除')
     selectedPoolId.value = 'default'
     await loadPools()
     await loadPoolSymbols()
@@ -271,7 +702,7 @@ async function handleSearchSecurities() {
   try {
     securityResults.value = await searchSecurities(securityMarket.value, securityQuery.value.trim(), 50)
     selectedSecurity.value = null
-    if (!securityResults.value.length) message.value = '没有找到匹配股票'
+    if (!securityResults.value.length) showToast('没有找到匹配股票')
   } catch (err) {
     setError(err, '查询可添加股票失败')
   } finally {
@@ -303,7 +734,7 @@ async function addSelectedSecurity() {
       undefined,
       selectedSecurity.value.name || selectedSecurity.value.name_cn || selectedSecurity.value.name_hk || selectedSecurity.value.name_en || undefined
     )
-    message.value = `${selectedSecurity.value.symbol} 已加入股票池`
+    showToast(`${selectedSecurity.value.symbol} 已加入股票池`)
     await Promise.all([loadPools(), loadPoolSymbols()])
   } catch (err) {
     setError(err, '添加股票失败')
@@ -352,10 +783,10 @@ async function submitSelectedSync() {
       symbols: selectedSymbols.value,
       period: period.value,
       adjust_type: adjustType.value,
-      start: start.value || undefined,
+      start: syncMode.value === 'range' ? start.value || undefined : undefined,
       end: end.value || undefined
     })
-    message.value = `已提交 ${response.tasks.length} 个同步任务`
+    showToast(`已提交 ${response.tasks.length} 个同步任务`)
     await loadTasks()
   } catch (err) {
     setError(err, '批量同步失败')
@@ -368,13 +799,15 @@ async function submitPoolSync() {
   loading.value = true
   error.value = ''
   try {
-    const response = await syncPool(selectedPoolId.value, {
-      period: period.value,
+    const payload = {
       adjust_type: adjustType.value,
-      start: start.value || undefined,
+      start: syncMode.value === 'range' ? start.value || undefined : undefined,
       end: end.value || undefined
-    })
-    message.value = `股票池全量同步已提交：${response.tasks.length} 个任务`
+    }
+    const response = period.value === 'all'
+      ? await syncPoolAllPeriods(selectedPoolId.value, payload)
+      : await syncPool(selectedPoolId.value, { period: period.value, ...payload })
+    showToast(`股票池同步已提交：${response.tasks.length} 个任务`)
     await loadTasks()
   } catch (err) {
     setError(err, '股票池同步失败')
@@ -384,7 +817,6 @@ async function submitPoolSync() {
 }
 
 watch(selectedPoolId, async () => {
-  syncPoolEditForm()
   await loadPoolSymbols()
   if (!enabledPoolSymbols.value.some((row) => row.symbol === researchSymbol.value)) {
     researchSymbol.value = enabledPoolSymbols.value[0]?.symbol || ''
@@ -392,9 +824,9 @@ watch(selectedPoolId, async () => {
   await loadChart()
 })
 
-watch([researchSymbol, period, adjustType, factorN, factorM], () => {
+watch([researchSymbol, period, adjustType, factorN, factorM, selectedFactors, customFactorParamText], () => {
   loadChart().catch((err) => setError(err, '加载图表失败'))
-})
+}, { deep: true })
 
 onMounted(() => {
   bootstrap()
@@ -406,6 +838,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (timer) window.clearInterval(timer)
+  if (toastTimer) window.clearTimeout(toastTimer)
 })
 </script>
 
@@ -430,8 +863,9 @@ onUnmounted(() => {
     </aside>
 
     <section class="content-shell">
-      <p v-if="message" class="notice global">{{ message }}</p>
-      <p v-if="error" class="error global">{{ error }}</p>
+      <div v-if="message || error" :class="['toast', error ? 'error' : 'notice']">
+        {{ error || message }}
+      </div>
 
       <section v-if="activeTab === 'pools'" class="tab-grid">
       <aside class="panel">
@@ -439,45 +873,82 @@ onUnmounted(() => {
           <Database :size="17" />
           <span>股票池</span>
         </div>
-        <label>
-          当前股票池
-          <select v-model="selectedPoolId">
-            <option v-for="pool in pools" :key="pool.id" :value="pool.id">
-              {{ pool.name }}（{{ pool.symbol_count || 0 }}）
-            </option>
-          </select>
-        </label>
-        <label>
-          股票池名称
-          <input v-model="editPoolName" placeholder="股票池名称" @keyup.enter="handleUpdatePool" />
-        </label>
-        <label>
-          股票池描述
-          <input v-model="editPoolDescription" placeholder="可选" @keyup.enter="handleUpdatePool" />
-        </label>
-        <div class="sync-actions">
-          <button class="submit secondary" @click="handleUpdatePool">
-            <Save :size="17" />
-            <span>保存股票池</span>
-          </button>
-          <button class="submit danger" :disabled="selectedPoolId === 'default'" @click="handleDeletePool">
-            <Trash2 :size="17" />
-            <span>删除股票池</span>
+        <button class="submit secondary" @click="openNewPoolDialog">
+          <Plus :size="17" />
+          <span>新建股票池</span>
+        </button>
+        <div class="pool-card-list">
+          <button
+            v-for="pool in pools"
+            :key="pool.id"
+            :class="{ selected: selectedPoolId === pool.id }"
+            type="button"
+            @click="selectedPoolId = pool.id"
+          >
+            <strong>{{ pool.name }}</strong>
+            <span>{{ pool.symbol_count || 0 }} 只股票</span>
+            <small v-if="pool.description">{{ pool.description }}</small>
           </button>
         </div>
-        <label>
-          新股票池
-          <input v-model="newPoolName" placeholder="例如：杠杆ETF研究池" @keyup.enter="handleCreatePool" />
-        </label>
-        <label>
-          描述
-          <input v-model="newPoolDescription" placeholder="可选" @keyup.enter="handleCreatePool" />
-        </label>
-        <button class="submit" @click="handleCreatePool">
-          <Plus :size="17" />
-          <span>创建股票池</span>
-        </button>
+        <div class="factor-side-actions">
+          <div class="sync-actions">
+            <button class="submit secondary" title="修改股票池" @click="openEditPoolDialog">
+              <Edit3 :size="17" />
+            </button>
+            <button class="submit danger" title="删除股票池" :disabled="selectedPoolId === 'default'" @click="handleDeletePool">
+              <Trash2 :size="17" />
+            </button>
+          </div>
+        </div>
       </aside>
+
+      <div v-if="showNewPoolDialog" class="modal-backdrop" @click.self="closeNewPoolDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Database :size="17" />
+            <span>新建股票池</span>
+          </div>
+          <label>
+            股票池名称
+            <input v-model="newPoolDraft.name" placeholder="例如：杠杆ETF研究池" @keyup.enter="handleCreatePool" />
+          </label>
+          <label>
+            描述
+            <textarea v-model="newPoolDraft.description" placeholder="可选"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeNewPoolDialog">取消</button>
+            <button class="submit compact" @click="handleCreatePool">
+              <Plus :size="16" />
+              <span>创建</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showEditPoolDialog" class="modal-backdrop" @click.self="closeEditPoolDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Database :size="17" />
+            <span>修改股票池</span>
+          </div>
+          <label>
+            股票池名称
+            <input v-model="editPoolDraft.name" placeholder="股票池名称" @keyup.enter="handleUpdatePool" />
+          </label>
+          <label>
+            描述
+            <textarea v-model="editPoolDraft.description" placeholder="可选"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeEditPoolDialog">取消</button>
+            <button class="submit compact" @click="handleUpdatePool">
+              <Save :size="16" />
+              <span>保存</span>
+            </button>
+          </div>
+        </section>
+      </div>
 
       <section class="main-panel">
         <div class="chart-head">
@@ -579,6 +1050,7 @@ onUnmounted(() => {
         <label>
           周期
           <select v-model="period">
+            <option value="all">全部周期</option>
             <option value="1min">1min</option>
             <option value="5min">5min</option>
             <option value="15min">15min</option>
@@ -595,15 +1067,22 @@ onUnmounted(() => {
           </select>
         </label>
         <label>
+          同步方式
+          <select v-model="syncMode">
+            <option value="incremental">增量更新</option>
+            <option value="range">指定时间范围</option>
+          </select>
+        </label>
+        <label>
           开始日期
-          <input v-model="start" type="date" />
+          <input v-model="start" type="date" :disabled="syncMode === 'incremental'" />
         </label>
         <label>
           结束日期
           <input v-model="end" type="date" />
         </label>
         <div class="sync-actions">
-          <button class="submit" :disabled="loading || !selectedSymbols.length" @click="submitSelectedSync">
+          <button class="submit" :disabled="loading || !selectedSymbols.length || period === 'all'" @click="submitSelectedSync">
             <Play :size="17" />
             <span>同步选中的股票</span>
           </button>
@@ -663,6 +1142,245 @@ onUnmounted(() => {
       </section>
       </section>
 
+      <section v-if="activeTab === 'customFactors'" class="custom-factor-layout">
+        <aside class="panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>自定义因子</span>
+          </div>
+          <button class="submit secondary" @click="openNewCustomFactorDialog">
+            <Plus :size="17" />
+            <span>新建因子</span>
+          </button>
+          <div class="custom-factor-list">
+            <button
+              v-for="factor in customFactors"
+              :key="factor.id"
+              :class="{ selected: selectedCustomFactorId === factor.id }"
+              type="button"
+              @click="selectCustomFactor(factor)"
+            >
+              <strong>{{ factor.name }}</strong>
+              <span>{{ factor.code }} · {{ factor.enabled ? '启用' : '停用' }}</span>
+            </button>
+          </div>
+          <div v-if="selectedCustomFactor" class="factor-side-actions">
+            <div class="factor-side-summary">
+              <strong>{{ customFactorForm.name }}</strong>
+              <span>{{ customFactorForm.code }} · {{ customFactorForm.enabled ? '启用' : '停用' }}</span>
+              <p v-if="customFactorForm.description">{{ customFactorForm.description }}</p>
+            </div>
+            <div class="sync-actions">
+              <button class="submit secondary" title="修改信息" @click="openEditCustomFactorDialog">
+                <Edit3 :size="17" />
+              </button>
+              <button class="submit" title="保存代码" @click="saveCustomFactor">
+                <Save :size="17" />
+              </button>
+              <button class="submit danger" title="删除因子" @click="removeCustomFactor">
+                <Trash2 :size="17" />
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <section class="main-panel custom-factor-editor">
+          <div v-if="selectedCustomFactor" class="factor-workbench">
+            <div class="param-strip">
+              <span>因子参数</span>
+              <code>{{ customFactorForm.default_params.replace(/\s+/g, ' ') }}</code>
+              <button class="ghost" @click="openParamDialog">编辑参数</button>
+            </div>
+            <CodeEditor v-model="customFactorForm.source_code" language="python" />
+            <div class="preview-config compact-preview">
+              <label>
+                股票池
+                <select v-model="customPreviewPoolId">
+                  <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+                </select>
+              </label>
+              <label>
+                测试股票
+                <select v-model="customPreviewSymbol">
+                  <option v-for="row in customPreviewPoolSymbols" :key="row.symbol" :value="row.symbol">
+                    {{ row.symbol }}{{ row.name ? ` · ${row.name}` : '' }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                周期
+                <select v-model="customPreviewPeriod">
+                  <option value="1min">1min</option>
+                  <option value="5min">5min</option>
+                  <option value="15min">15min</option>
+                  <option value="30min">30min</option>
+                  <option value="60min">60min</option>
+                  <option value="day">day</option>
+                </select>
+              </label>
+              <label>
+                复权
+                <select v-model="customPreviewAdjustType">
+                  <option value="forward">前复权</option>
+                  <option value="no_adjust">不复权</option>
+                </select>
+              </label>
+              <label>
+                样本数
+                <input v-model.number="customPreviewLimit" type="number" min="20" max="1000" />
+              </label>
+              <button class="submit secondary compact" :disabled="!selectedCustomFactorId" @click="runCustomFactorPreview">
+                <Play :size="16" />
+                <span>试运行</span>
+              </button>
+            </div>
+            <KlineChart
+              v-if="customPreviewCandles.length"
+              :candles="customPreviewCandles"
+              :factors="customPreviewFactors"
+              :selected-factors="[previewFactorKey]"
+              :factor-series="previewFactorSeries"
+              :fit-key="customPreviewFitKey"
+              :show-vwap="false"
+              :show-ma="false"
+              :show-ema="false"
+              :show-bollinger="false"
+              :ma-period="maPeriod"
+              :ema-period="emaPeriod"
+              :bollinger-period="bollingerPeriod"
+              :bollinger-multiplier="bollingerMultiplier"
+              v-model:visible-candle-count="visibleCandleCount"
+              @load-older="() => {}"
+            />
+          </div>
+          <div v-else class="empty-state">请先在左侧新建或选择一个自定义因子</div>
+        </section>
+      </section>
+
+      <div v-if="showNewFactorDialog" class="modal-backdrop" @click.self="closeNewCustomFactorDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>新建自定义因子</span>
+          </div>
+          <label>
+            因子编码
+            <input v-model="newFactorDraft.code" placeholder="例如 rsi_factor" @keyup.enter="createCustomFactorFromDialog" />
+          </label>
+          <label>
+            因子名称
+            <input v-model="newFactorDraft.name" placeholder="例如 RSI 因子" @keyup.enter="createCustomFactorFromDialog" />
+          </label>
+          <label>
+            描述
+            <textarea v-model="newFactorDraft.description" placeholder="可选"></textarea>
+          </label>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeNewCustomFactorDialog">取消</button>
+            <button class="submit compact" @click="createCustomFactorFromDialog">
+              <Plus :size="16" />
+              <span>创建</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showEditFactorDialog" class="modal-backdrop" @click.self="closeEditCustomFactorDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>修改因子信息</span>
+          </div>
+          <label>
+            因子编码
+            <input v-model="editFactorDraft.code" placeholder="例如 rsi_factor" />
+          </label>
+          <label>
+            因子名称
+            <input v-model="editFactorDraft.name" placeholder="例如 RSI 因子" />
+          </label>
+          <label>
+            描述
+            <textarea v-model="editFactorDraft.description" placeholder="可选"></textarea>
+          </label>
+          <label class="check-row custom-enabled">
+            <input v-model="editFactorDraft.enabled" type="checkbox" />
+            启用
+          </label>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeEditCustomFactorDialog">取消</button>
+            <button class="submit compact" @click="saveCustomFactorMeta">
+              <Save :size="16" />
+              <span>保存</span>
+            </button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showParamDialog" class="modal-backdrop" @click.self="closeParamDialog">
+        <section class="modal-panel param-modal">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>编辑因子参数 JSON</span>
+          </div>
+          <CodeEditor v-model="customFactorForm.default_params" language="json" />
+          <div class="modal-actions">
+            <button class="ghost" @click="closeParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showResearchParamDialog" class="modal-backdrop" @click.self="closeResearchParamDialog">
+        <section class="modal-panel param-modal">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>{{ researchParamLabel(editingResearchParamKey) }} 参数 JSON</span>
+          </div>
+          <CodeEditor v-model="customFactorParamText[editingResearchParamKey]" language="json" />
+          <div class="modal-actions">
+            <button class="ghost" @click="closeResearchParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="activeParamDialog" class="modal-backdrop" @click.self="closeSimpleParamDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <BarChart3 :size="17" />
+            <span>{{ simpleParamTitle() }}</span>
+          </div>
+          <label v-if="activeParamDialog === 'first'">
+            步长
+            <input v-model.number="factorN" type="number" min="1" max="240" />
+          </label>
+          <label v-if="activeParamDialog === 'second'">
+            步长
+            <input v-model.number="factorM" type="number" min="1" max="240" />
+          </label>
+          <label v-if="activeParamDialog === 'ma'">
+            周期
+            <input v-model.number="maPeriod" type="number" min="1" max="240" />
+          </label>
+          <label v-if="activeParamDialog === 'ema'">
+            周期
+            <input v-model.number="emaPeriod" type="number" min="1" max="240" />
+          </label>
+          <template v-if="activeParamDialog === 'boll'">
+            <label>
+              周期
+              <input v-model.number="bollingerPeriod" type="number" min="1" max="240" />
+            </label>
+            <label>
+              倍数
+              <input v-model.number="bollingerMultiplier" type="number" min="0.1" max="10" step="0.1" />
+            </label>
+          </template>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeSimpleParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
       <section v-if="activeTab === 'research'" class="research-layout">
       <aside class="panel research-controls">
         <div class="panel-title">
@@ -703,22 +1421,35 @@ onUnmounted(() => {
         </label>
         <div class="factor-picker">
           <div class="factor-config-title">因子指标</div>
+          <div class="factor-group-title">系统预设</div>
           <div v-for="factor in factorOptions" :key="factor.key" class="factor-option-row">
             <label class="check-row">
               <input v-model="selectedFactors" type="checkbox" :value="factor.key" />
               {{ factor.label }}
             </label>
-            <details v-if="selectedFactors.includes(factor.key)" class="param-disclosure">
-              <summary>参数配置</summary>
-              <label v-if="factor.key === 'first_derivative'" class="inline-param">
-                步长
-                <input v-model.number="factorN" type="number" min="1" max="240" />
-              </label>
-              <label v-else class="inline-param">
-                步长
-                <input v-model.number="factorM" type="number" min="1" max="240" />
-              </label>
-            </details>
+            <button
+              v-if="selectedFactors.includes(factor.key)"
+              class="ghost param-button"
+              type="button"
+              @click="openSimpleParamDialog(factor.key === 'first_derivative' ? 'first' : 'second')"
+            >
+              参数配置
+            </button>
+          </div>
+          <div class="factor-group-title">自定义因子</div>
+          <div v-for="factor in enabledCustomFactors" :key="factor.id" class="factor-option-row">
+            <label class="check-row">
+              <input v-model="selectedFactors" type="checkbox" :value="customFactorKey(factor.id)" />
+              {{ factor.name }}
+            </label>
+            <button
+              v-if="selectedFactors.includes(customFactorKey(factor.id))"
+              class="ghost param-button"
+              type="button"
+              @click="openResearchParamDialog(customFactorKey(factor.id))"
+            >
+              参数配置
+            </button>
           </div>
         </div>
         <button class="submit" @click="loadChart({ resetView: true })">
@@ -747,49 +1478,28 @@ onUnmounted(() => {
               <input v-model="showMa" type="checkbox" />
               MA
             </label>
-            <details v-if="showMa" class="param-disclosure">
-              <summary>参数配置</summary>
-              <label class="inline-param">
-                周期
-                <input v-model.number="maPeriod" type="number" min="1" max="240" />
-              </label>
-            </details>
+            <button v-if="showMa" class="ghost param-button" type="button" @click="openSimpleParamDialog('ma')">参数配置</button>
           </div>
           <div class="indicator-option-row">
             <label class="check-row">
               <input v-model="showEma" type="checkbox" />
               EMA
             </label>
-            <details v-if="showEma" class="param-disclosure">
-              <summary>参数配置</summary>
-              <label class="inline-param">
-                周期
-                <input v-model.number="emaPeriod" type="number" min="1" max="240" />
-              </label>
-            </details>
+            <button v-if="showEma" class="ghost param-button" type="button" @click="openSimpleParamDialog('ema')">参数配置</button>
           </div>
           <div class="indicator-option-row">
             <label class="check-row">
               <input v-model="showBollinger" type="checkbox" />
               BOLL
             </label>
-            <details v-if="showBollinger" class="param-disclosure bollinger-disclosure">
-              <summary>参数配置</summary>
-              <label class="inline-param">
-                周期
-                <input v-model.number="bollingerPeriod" type="number" min="1" max="240" />
-              </label>
-              <label class="inline-param">
-                倍数
-                <input v-model.number="bollingerMultiplier" type="number" min="0.1" max="10" step="0.1" />
-              </label>
-            </details>
+            <button v-if="showBollinger" class="ghost param-button" type="button" @click="openSimpleParamDialog('boll')">参数配置</button>
           </div>
         </div>
         <KlineChart
           :candles="candles"
           :factors="factors"
           :selected-factors="selectedFactors"
+          :factor-series="factorSeriesMeta"
           :fit-key="chartFitKey"
           :show-vwap="showVwap"
           :show-ma="showMa"

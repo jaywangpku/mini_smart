@@ -102,6 +102,23 @@ export type DerivativeFactorPoint = {
   second_derivative?: number | null
 }
 
+export type FactorValuePoint = {
+  time: number
+  value?: number | null
+}
+
+export type CustomFactor = {
+  id: string
+  code: string
+  name: string
+  description?: string | null
+  source_code: string
+  default_params: string
+  enabled: number
+  created_at: string
+  updated_at: string
+}
+
 export async function initDb() {
   const { data } = await http.post('/db/init')
   return data
@@ -181,6 +198,53 @@ export async function removePoolSymbol(poolId: string, symbol: string) {
   return data
 }
 
+export async function fetchCustomFactors(enabledOnly = false) {
+  const { data } = await http.get<CustomFactor[]>('/factors/custom', {
+    params: { enabled_only: enabledOnly }
+  })
+  return data
+}
+
+export async function createCustomFactor(payload: {
+  code: string
+  name: string
+  description?: string
+  source_code: string
+  default_params: Record<string, unknown>
+  enabled: boolean
+}) {
+  const { data } = await http.post<CustomFactor>('/factors/custom', payload)
+  return data
+}
+
+export async function updateCustomFactor(
+  factorId: string,
+  payload: Partial<{
+    code: string
+    name: string
+    description: string
+    source_code: string
+    default_params: Record<string, unknown>
+    enabled: boolean
+  }>
+) {
+  const { data } = await http.patch<CustomFactor>(`/factors/custom/${factorId}`, payload)
+  return data
+}
+
+export async function deleteCustomFactor(factorId: string) {
+  const { data } = await http.delete<{ ok: boolean }>(`/factors/custom/${factorId}`)
+  return data
+}
+
+export async function previewCustomFactor(
+  factorId: string,
+  payload: { symbol: string; period: string; adjust_type: string; params: Record<string, unknown>; limit: number }
+) {
+  const { data } = await http.post<FactorValuePoint[]>(`/factors/custom/${factorId}/preview`, payload)
+  return data
+}
+
 export async function createSyncTask(payload: SyncPayload) {
   const { data } = await http.post<{ task_id: string; status: string; created: boolean }>('/sync', payload)
   return data
@@ -199,6 +263,13 @@ export async function syncPool(poolId: string, payload: Omit<SyncPayload, 'symbo
     `/pools/${poolId}/sync`,
     { symbol: '*', ...payload }
   )
+  return data
+}
+
+export async function syncPoolAllPeriods(poolId: string, payload: Omit<SyncPayload, 'symbol' | 'period'>) {
+  const { data } = await http.post<{
+    tasks: Array<{ task_id: string; symbol: string; period: string; status: string; created: boolean }>
+  }>(`/pools/${poolId}/sync/all-periods`, { symbol: '*', period: '*', ...payload })
   return data
 }
 
@@ -252,6 +323,21 @@ export async function fetchLatestSessionDerivativeFactors(
 ) {
   const { data } = await http.get<DerivativeFactorPoint[]>('/factors/derivative', {
     params: { symbol, period, adjust_type: adjustType, n, m, limit, latest_session: true }
+  })
+  return data
+}
+
+export async function fetchCustomFactorValues(
+  factorId: string,
+  symbol: string,
+  period: string,
+  adjustType: string,
+  params: Record<string, unknown>,
+  limit = 2000,
+  range?: { start?: number; end?: number }
+) {
+  const { data } = await http.get<FactorValuePoint[]>(`/factors/custom/${factorId}/values`, {
+    params: { symbol, period, adjust_type: adjustType, params: JSON.stringify(params), limit, ...range }
   })
   return data
 }

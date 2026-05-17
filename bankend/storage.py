@@ -115,6 +115,18 @@ class Storage:
                   PRIMARY KEY (pool_id, symbol),
                   FOREIGN KEY(pool_id) REFERENCES stock_pools(id) ON DELETE CASCADE
                 );
+
+                CREATE TABLE IF NOT EXISTS custom_factors (
+                  id TEXT PRIMARY KEY,
+                  code TEXT NOT NULL UNIQUE,
+                  name TEXT NOT NULL,
+                  description TEXT,
+                  source_code TEXT NOT NULL,
+                  default_params TEXT NOT NULL DEFAULT '{}',
+                  enabled INTEGER NOT NULL DEFAULT 1,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
                 """
             )
             now = utc_now_iso()
@@ -185,6 +197,89 @@ class Storage:
         with self.connect() as conn:
             rows = conn.execute("SELECT * FROM symbols ORDER BY symbol").fetchall()
             return [dict(row) for row in rows]
+
+    def list_custom_factors(self, enabled_only: bool = False) -> list[dict]:
+        clauses: list[str] = []
+        if enabled_only:
+            clauses.append("enabled = 1")
+        with self.connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM custom_factors
+                {'WHERE ' + ' AND '.join(clauses) if clauses else ''}
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def get_custom_factor(self, factor_id: str) -> dict | None:
+        with self.connect() as conn:
+            row = conn.execute("SELECT * FROM custom_factors WHERE id = ?", (factor_id,)).fetchone()
+            return dict(row) if row else None
+
+    def create_custom_factor(
+        self,
+        code: str,
+        name: str,
+        source_code: str,
+        description: str | None = None,
+        default_params: str = "{}",
+        enabled: bool = True,
+    ) -> dict:
+        factor_id = f"factor_{uuid4().hex[:12]}"
+        now = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO custom_factors(
+                  id, code, name, description, source_code, default_params, enabled, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (factor_id, code, name, description, source_code, default_params, 1 if enabled else 0, now, now),
+            )
+        factor = self.get_custom_factor(factor_id)
+        if factor is None:
+            raise ValueError("自定义因子创建失败")
+        return factor
+
+    def update_custom_factor(
+        self,
+        factor_id: str,
+        code: str | None = None,
+        name: str | None = None,
+        source_code: str | None = None,
+        description: str | None = None,
+        default_params: str | None = None,
+        enabled: bool | None = None,
+    ) -> dict | None:
+        fields: list[str] = []
+        params: list[object] = []
+        for column, value in (
+            ("code", code),
+            ("name", name),
+            ("source_code", source_code),
+            ("description", description),
+            ("default_params", default_params),
+        ):
+            if value is not None:
+                fields.append(f"{column} = ?")
+                params.append(value)
+        if enabled is not None:
+            fields.append("enabled = ?")
+            params.append(1 if enabled else 0)
+        if not fields:
+            return self.get_custom_factor(factor_id)
+        fields.append("updated_at = ?")
+        params.append(utc_now_iso())
+        params.append(factor_id)
+        with self.connect() as conn:
+            cursor = conn.execute(f"UPDATE custom_factors SET {', '.join(fields)} WHERE id = ?", params)
+        return self.get_custom_factor(factor_id) if cursor.rowcount else None
+
+    def delete_custom_factor(self, factor_id: str) -> bool:
+        with self.connect() as conn:
+            cursor = conn.execute("DELETE FROM custom_factors WHERE id = ?", (factor_id,))
+            return cursor.rowcount > 0
 
     def list_pools(self) -> list[dict]:
         with self.connect() as conn:

@@ -11,6 +11,25 @@ from .storage import Storage
 
 MAX_HISTORY_COUNT = 1000
 
+PERIOD_STEP_SECONDS = {
+    "1min": 60,
+    "2min": 120,
+    "3min": 180,
+    "5min": 300,
+    "10min": 600,
+    "15min": 900,
+    "20min": 1200,
+    "30min": 1800,
+    "45min": 2700,
+    "60min": 3600,
+    "120min": 7200,
+    "180min": 10800,
+    "240min": 14400,
+    "day": 86400,
+    "week": 604800,
+    "month": 2678400,
+}
+
 
 def parse_date_or_datetime(value: str | None) -> datetime | None:
     if not value:
@@ -51,7 +70,7 @@ class SyncService:
         if start is None:
             latest_ts = self.storage.latest_timestamp(request.symbol, request.period, request.adjust_type)
             if latest_ts is not None:
-                start = datetime.fromtimestamp(latest_ts + 1, tz=timezone.utc)
+                start = datetime.fromtimestamp(latest_ts + self._period_step(request.period), tz=timezone.utc)
 
         if start is None:
             return self.client.fetch_recent(
@@ -83,13 +102,16 @@ class SyncService:
 
             if not batch or len(batch) < MAX_HISTORY_COUNT:
                 break
-            next_ts = max(c.timestamp for c in batch) + 60
+            next_ts = max(c.timestamp for c in batch) + self._period_step(request.period)
             next_cursor = datetime.fromtimestamp(next_ts, tz=timezone.utc)
             if next_cursor <= cursor:
-                next_cursor = cursor + timedelta(minutes=1)
+                next_cursor = cursor + timedelta(seconds=self._period_step(request.period))
             cursor = next_cursor
 
         return sorted(all_candles, key=lambda candle: candle.timestamp)
+
+    def _period_step(self, period: str) -> int:
+        return PERIOD_STEP_SECONDS.get(period, 60)
 
 
 class TaskRunner:
