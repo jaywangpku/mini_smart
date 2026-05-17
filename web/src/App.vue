@@ -31,7 +31,7 @@ type FactorKey = 'first_derivative' | 'second_derivative'
 const tabs: Array<{ id: TabName; label: string; icon: unknown }> = [
   { id: 'pools', label: '股票池管理', icon: Database },
   { id: 'sync', label: '数据同步', icon: Play },
-  { id: 'research', label: 'K线与因子研究', icon: BarChart3 }
+  { id: 'research', label: '因子研究', icon: BarChart3 }
 ]
 
 const factorOptions: Array<{ key: FactorKey; label: string }> = [
@@ -70,6 +70,7 @@ const maPeriod = ref(20)
 const emaPeriod = ref(20)
 const bollingerPeriod = ref(20)
 const bollingerMultiplier = ref(2)
+const visibleCandleCount = ref(160)
 const chartFitKey = ref(0)
 const loadingOlder = ref(false)
 const reachedHistoryStart = ref(false)
@@ -121,7 +122,7 @@ function chartLimitForPeriod(value: string) {
   return 2000
 }
 
-async function loadChart() {
+async function loadChart(options: { resetView?: boolean } = {}) {
   if (!researchSymbol.value) {
     candles.value = []
     factors.value = []
@@ -136,7 +137,7 @@ async function loadChart() {
   candles.value = nextCandles
   factors.value = nextFactors
   reachedHistoryStart.value = false
-  chartFitKey.value += 1
+  if (options.resetView) chartFitKey.value += 1
 }
 
 function mergeByTime<T extends { time: number }>(current: T[], incoming: T[]) {
@@ -180,7 +181,7 @@ async function bootstrap() {
     await initDb()
     await loadPools()
     await loadPoolSymbols()
-    await Promise.all([loadTasks(), loadChart()])
+    await Promise.all([loadTasks(), loadChart({ resetView: true })])
   } catch (err) {
     setError(err, '初始化失败')
   } finally {
@@ -372,10 +373,6 @@ onUnmounted(() => {
           <span v-if="!navCollapsed">{{ tab.label }}</span>
         </button>
       </nav>
-      <button class="ghost refresh-nav" @click="bootstrap">
-        <RefreshCw :size="17" />
-        <span v-if="!navCollapsed">刷新</span>
-      </button>
     </aside>
 
     <section class="content-shell">
@@ -621,7 +618,7 @@ onUnmounted(() => {
             </details>
           </div>
         </div>
-        <button class="submit" @click="loadChart">
+        <button class="submit" @click="loadChart({ resetView: true })">
           <RefreshCw :size="17" />
           <span>刷新图表</span>
         </button>
@@ -699,6 +696,7 @@ onUnmounted(() => {
           :ema-period="emaPeriod"
           :bollinger-period="bollingerPeriod"
           :bollinger-multiplier="bollingerMultiplier"
+          v-model:visible-candle-count="visibleCandleCount"
           @load-older="loadOlderChartData"
         />
       </section>

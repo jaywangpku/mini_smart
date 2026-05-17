@@ -18,20 +18,32 @@ const props = defineProps<{
   emaPeriod: number
   bollingerPeriod: number
   bollingerMultiplier: number
+  visibleCandleCount: number
 }>()
 
 const emit = defineEmits<{
   loadOlder: []
+  'update:visibleCandleCount': [value: number]
 }>()
 
 const factorDefs: Record<FactorKey, { label: string; color: string }> = {
-  first_derivative: { label: '一阶导', color: '#1463ff' },
-  second_derivative: { label: '二阶导', color: '#e06f2f' }
+  first_derivative: { label: '一阶导', color: '#38bdf8' },
+  second_derivative: { label: '二阶导', color: '#f97316' }
+}
+
+const chartTheme = {
+  background: '#0f172a',
+  text: '#cbd5e1',
+  grid: '#1e293b',
+  border: '#334155',
+  zero: '#fb7185'
 }
 
 const candleHost = ref<HTMLDivElement | null>(null)
 const factorHosts = new Map<FactorKey, HTMLDivElement>()
 const hoverTime = ref<number | null>(null)
+const sizeStep = ref(20)
+const moveStep = ref(40)
 let candleChart: IChartApi | undefined
 let candleSeries: ISeriesApi<'Candlestick'> | undefined
 let vwapSeries: ISeriesApi<'Line'> | undefined
@@ -170,6 +182,47 @@ function bindTimeScaleSync(chart: IChartApi) {
     if (!suppressOlderRequest && range && range.from < 40) emit('loadOlder')
     syncVisibleRange(chart)
   })
+}
+
+function normalizedVisibleCount(value = props.visibleCandleCount) {
+  return Math.min(2000, Math.max(20, Math.floor(value || 160)))
+}
+
+function normalizedStep(value: number, fallback: number) {
+  return Math.min(2000, Math.max(1, Math.floor(value || fallback)))
+}
+
+function currentVisibleRange() {
+  return candleChart?.timeScale().getVisibleLogicalRange() ?? null
+}
+
+function setPrimaryVisibleRange(from: number, to: number) {
+  if (!candleChart) return
+  const maxIndex = Math.max(props.candles.length - 1, 0)
+  const width = Math.max(to - from, 1)
+  let nextFrom = Math.max(0, Math.min(from, maxIndex))
+  let nextTo = nextFrom + width
+  if (nextTo > maxIndex) {
+    nextTo = maxIndex
+    nextFrom = Math.max(0, nextTo - width)
+  }
+  candleChart.timeScale().setVisibleLogicalRange({ from: nextFrom, to: nextTo })
+  syncVisibleRange(candleChart)
+}
+
+function shiftVisibleRange(amount: number) {
+  const range = currentVisibleRange()
+  if (!range) return
+  if (range.from + amount < 40) emit('loadOlder')
+  setPrimaryVisibleRange(range.from + amount, range.to + amount)
+}
+
+function resizeVisibleCount(nextCount: number) {
+  const count = normalizedVisibleCount(nextCount)
+  emit('update:visibleCandleCount', count)
+  const range = currentVisibleRange()
+  const to = range?.to ?? Math.max(props.candles.length - 1, 0)
+  setPrimaryVisibleRange(to - count + 1, to)
 }
 
 function factorValue(point: DerivativeFactorPoint, key: FactorKey) {
@@ -341,8 +394,9 @@ function render() {
   }
   if (candleChart && props.fitKey !== lastFitKey) {
     suppressOlderRequest = true
+    const count = normalizedVisibleCount()
     const to = Math.max(props.candles.length - 1, 0)
-    const from = Math.max(to - 159, 0)
+    const from = Math.max(to - count + 1, 0)
     candleChart.timeScale().setVisibleLogicalRange({ from, to })
     syncVisibleRange(candleChart)
     lastFitKey = props.fitKey
@@ -356,22 +410,22 @@ function createFactorChart(key: FactorKey, host: HTMLDivElement) {
   const chart = createChart(host, {
     autoSize: true,
     layout: {
-      background: { color: '#ffffff' },
-      textColor: '#24324a'
+      background: { color: chartTheme.background },
+      textColor: chartTheme.text
     },
     grid: {
-      vertLines: { color: '#edf1f6' },
-      horzLines: { color: '#edf1f6' }
+      vertLines: { color: chartTheme.grid },
+      horzLines: { color: chartTheme.grid }
     },
     crosshair: {
       mode: 1
     },
     rightPriceScale: {
-      borderColor: '#dae2ec',
+      borderColor: chartTheme.border,
       minimumWidth: 72
     },
     timeScale: {
-      borderColor: '#dae2ec',
+      borderColor: chartTheme.border,
       timeVisible: true,
       secondsVisible: false
     }
@@ -383,7 +437,7 @@ function createFactorChart(key: FactorKey, host: HTMLDivElement) {
   })
   series.createPriceLine({
     price: 0,
-    color: '#dc2626',
+    color: chartTheme.zero,
     lineWidth: 1,
     lineStyle: LineStyle.Solid,
     axisLabelVisible: true,
@@ -420,66 +474,66 @@ onMounted(() => {
   candleChart = createChart(candleHost.value, {
     autoSize: true,
     layout: {
-      background: { color: '#ffffff' },
-      textColor: '#24324a'
+      background: { color: chartTheme.background },
+      textColor: chartTheme.text
     },
     grid: {
-      vertLines: { color: '#edf1f6' },
-      horzLines: { color: '#edf1f6' }
+      vertLines: { color: chartTheme.grid },
+      horzLines: { color: chartTheme.grid }
     },
     crosshair: {
       mode: 1
     },
     rightPriceScale: {
-      borderColor: '#dae2ec',
+      borderColor: chartTheme.border,
       minimumWidth: 72
     },
     timeScale: {
-      borderColor: '#dae2ec',
+      borderColor: chartTheme.border,
       timeVisible: true,
       secondsVisible: false
     }
   })
   candleSeries = candleChart.addCandlestickSeries({
-    upColor: '#0f9f6e',
-    downColor: '#d64550',
-    borderUpColor: '#0f9f6e',
-    borderDownColor: '#d64550',
-    wickUpColor: '#0f9f6e',
-    wickDownColor: '#d64550'
+    upColor: '#22c55e',
+    downColor: '#f43f5e',
+    borderUpColor: '#22c55e',
+    borderDownColor: '#f43f5e',
+    wickUpColor: '#22c55e',
+    wickDownColor: '#f43f5e'
   })
   vwapSeries = candleChart.addLineSeries({
-    color: '#7b4dd8',
+    color: '#a78bfa',
     lineWidth: 2,
     title: 'VWAP',
     priceLineVisible: false
   })
   maSeries = candleChart.addLineSeries({
-    color: '#0f766e',
+    color: '#06b6d4',
     lineWidth: 2,
     title: 'MA',
     priceLineVisible: false
   })
   emaSeries = candleChart.addLineSeries({
-    color: '#2563eb',
+    color: '#38bdf8',
     lineWidth: 2,
     title: 'EMA',
     priceLineVisible: false
   })
   bollUpperSeries = candleChart.addLineSeries({
-    color: '#8a63d2',
+    color: '#c084fc',
     lineWidth: 1,
     title: 'BOLL上轨',
     priceLineVisible: false
   })
   bollMiddleSeries = candleChart.addLineSeries({
-    color: '#a78bfa',
+    color: '#fbbf24',
     lineWidth: 1,
     title: 'BOLL中轨',
     priceLineVisible: false
   })
   bollLowerSeries = candleChart.addLineSeries({
-    color: '#8a63d2',
+    color: '#c084fc',
     lineWidth: 1,
     title: 'BOLL下轨',
     priceLineVisible: false
@@ -544,6 +598,23 @@ watch(() => props.selectedFactors, syncFactorCharts, { deep: true })
 
 <template>
   <div class="chart-stack">
+    <div class="chart-nav-bar">
+      <button type="button" title="向左翻页" @click="shiftVisibleRange(-normalizedVisibleCount())">‹‹</button>
+      <button type="button" title="向左滑动" @click="shiftVisibleRange(-normalizedStep(moveStep, 40))">‹</button>
+      <button type="button" title="增加展示数量" @click="resizeVisibleCount(normalizedVisibleCount() + normalizedStep(sizeStep, 20))">+</button>
+      <span>展示 {{ normalizedVisibleCount() }} 根</span>
+      <button type="button" title="减少展示数量" @click="resizeVisibleCount(normalizedVisibleCount() - normalizedStep(sizeStep, 20))">-</button>
+      <button type="button" title="向右滑动" @click="shiftVisibleRange(normalizedStep(moveStep, 40))">›</button>
+      <button type="button" title="向右翻页" @click="shiftVisibleRange(normalizedVisibleCount())">››</button>
+      <label>
+        加减
+        <input v-model.number="sizeStep" type="number" min="1" max="2000" />
+      </label>
+      <label>
+        左右
+        <input v-model.number="moveStep" type="number" min="1" max="2000" />
+      </label>
+    </div>
     <div class="hover-table">
       <span>时间 {{ formatTime(selectedTime) }}</span>
       <span>开 {{ formatNumber(selectedCandle?.open, 3) }}</span>
