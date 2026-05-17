@@ -1,0 +1,15 @@
+.venv/
+.run/
+__pycache__/
+*.py[cod]
+
+web/node_modules/
+web/dist/
+web/src/**/*.js
+web/src/**/*.js.map
+
+data/*.sqlite
+data/*.sqlite-*
+
+.env
+.DS_Store
