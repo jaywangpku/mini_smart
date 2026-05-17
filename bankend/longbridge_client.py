@@ -39,6 +39,13 @@ ADJUST_TYPE_MAP = {
     "forward": "ForwardAdjust",
 }
 
+MARKET_MAP = {
+    "US": "US",
+    "HK": "HK",
+    "CN": "CN",
+    "SG": "SG",
+}
+
 
 def _env(name: str) -> str | None:
     value = os.getenv(name)
@@ -117,6 +124,113 @@ class LongbridgeClient:
         if trade_session != "intraday":
             raise ValueError("第一版仅支持 intraday 交易时段")
         return self._openapi.TradeSessions.Intraday
+
+    def _market(self, market: str):
+        key = MARKET_MAP.get(market.upper())
+        if not key:
+            raise ValueError(f"不支持的 market: {market}")
+        return getattr(self._openapi.Market, key)
+
+    def search_securities(self, market: str = "US", query: str | None = None, limit: int = 50) -> list[dict]:
+        market = market.upper()
+        keyword = (query or "").strip().lower()
+        max_results = max(1, min(limit, 200))
+        results: list[dict] = []
+        seen: set[str] = set()
+
+        if keyword:
+            for row in self._static_info_candidates(keyword, market):
+                self._append_security_result(results, seen, row, keyword, max_results)
+                if len(results) >= max_results:
+                    return results
+
+        if market != "US":
+            return results
+
+        securities = self._ctx.security_list(self._market(market), self._openapi.SecurityListCategory.Overnight)
+
+        for item in securities:
+            row = self._normalize_security(item, market)
+            self._append_security_result(results, seen, row, keyword, max_results)
+            if len(results) >= max_results:
+                break
+
+        return results
+
+    def static_info(self, symbol: str) -> dict | None:
+        rows = self._ctx.static_info([symbol.upper()])
+        if not rows:
+            return None
+        return self._normalize_static_info(rows[0])
+
+    def _static_info_candidates(self, keyword: str, market: str) -> list[dict]:
+        raw = keyword.strip().upper()
+        if not raw:
+            return []
+        symbols = [raw]
+        if "." not in raw:
+            symbols.insert(0, f"{raw}.{market}")
+        try:
+            rows = self._ctx.static_info(list(dict.fromkeys(symbols)))
+        except Exception:
+            return []
+        return [self._normalize_static_info(item) for item in rows]
+
+    def _append_security_result(
+        self,
+        results: list[dict],
+        seen: set[str],
+        row: dict,
+        keyword: str,
+        max_results: int,
+    ) -> None:
+        symbol = str(row.get("symbol") or "").upper()
+        if not symbol or symbol in seen or len(results) >= max_results:
+            return
+        haystack = " ".join(
+            str(value).lower()
+            for value in (row.get("symbol"), row.get("name"), row.get("name_en"), row.get("name_cn"), row.get("name_hk"))
+            if value
+        )
+        if keyword and keyword not in haystack:
+            return
+        seen.add(symbol)
+        results.append(row)
+
+    def _normalize_security(self, item: object, market: str) -> dict:
+        name_en = getattr(item, "name_en", None)
+        name_cn = getattr(item, "name_cn", None)
+        name_hk = getattr(item, "name_hk", None)
+        return {
+            "symbol": getattr(item, "symbol"),
+            "name": name_cn or name_hk or name_en,
+            "name_en": name_en,
+            "name_cn": name_cn,
+            "name_hk": name_hk,
+            "market": market.upper(),
+        }
+
+    def _normalize_static_info(self, item: object) -> dict:
+        name_en = getattr(item, "name_en", None)
+        name_cn = getattr(item, "name_cn", None)
+        name_hk = getattr(item, "name_hk", None)
+        return {
+            "symbol": getattr(item, "symbol"),
+            "name": name_cn or name_hk or name_en,
+            "name_en": name_en,
+            "name_cn": name_cn,
+            "name_hk": name_hk,
+            "exchange": getattr(item, "exchange", None),
+            "currency": getattr(item, "currency", None),
+            "lot_size": getattr(item, "lot_size", None),
+            "board": str(getattr(item, "board", "")) or None,
+            "eps": _to_float(getattr(item, "eps", None)),
+            "eps_ttm": _to_float(getattr(item, "eps_ttm", None)),
+            "bps": _to_float(getattr(item, "bps", None)),
+            "dividend_yield": _to_float(getattr(item, "dividend_yield", None)),
+            "total_shares": getattr(item, "total_shares", None),
+            "circulating_shares": getattr(item, "circulating_shares", None),
+        }
 
     def fetch_history_by_offset(
         self,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { BarChart3, Database, Menu, PanelLeftClose, Play, Plus, RefreshCw, Save, Trash2 } from 'lucide-vue-next'
+import { BarChart3, Database, Menu, PanelLeftClose, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
 import {
   addPoolSymbol,
   createBatchSyncTask,
@@ -10,9 +10,11 @@ import {
   fetchDerivativeFactors,
   fetchPoolSymbols,
   fetchPools,
+  fetchSecurityInfo,
   fetchTasks,
   initDb,
   removePoolSymbol,
+  searchSecurities,
   setPoolSymbolEnabled,
   syncPool,
   updatePool,
@@ -21,6 +23,8 @@ import {
   type DerivativeFactorPoint,
   type PoolRow,
   type PoolSymbolRow,
+  type SecurityInfo,
+  type SecurityRow,
   type SyncTask
 } from './api'
 import KlineChart from './components/KlineChart.vue'
@@ -53,6 +57,11 @@ const newPoolName = ref('')
 const newPoolDescription = ref('')
 const newSymbol = ref('MSTU.US')
 const newSymbolName = ref('')
+const securityMarket = ref('US')
+const securityQuery = ref('MSTU')
+const securityResults = ref<SecurityRow[]>([])
+const selectedSecurity = ref<SecurityInfo | null>(null)
+const searchingSecurities = ref(false)
 const editPoolName = ref('')
 const editPoolDescription = ref('')
 const period = ref('1min')
@@ -256,6 +265,51 @@ async function handleAddPoolSymbol() {
   }
 }
 
+async function handleSearchSecurities() {
+  searchingSecurities.value = true
+  error.value = ''
+  try {
+    securityResults.value = await searchSecurities(securityMarket.value, securityQuery.value.trim(), 50)
+    selectedSecurity.value = null
+    if (!securityResults.value.length) message.value = '没有找到匹配股票'
+  } catch (err) {
+    setError(err, '查询可添加股票失败')
+  } finally {
+    searchingSecurities.value = false
+  }
+}
+
+async function selectSecurity(row: SecurityRow) {
+  selectedSecurity.value = {
+    ...row,
+    exchange: null,
+    currency: null
+  }
+  error.value = ''
+  try {
+    selectedSecurity.value = await fetchSecurityInfo(row.symbol)
+  } catch (err) {
+    setError(err, '查询股票基本信息失败')
+  }
+}
+
+async function addSelectedSecurity() {
+  if (!selectedSecurity.value) return
+  error.value = ''
+  try {
+    await addPoolSymbol(
+      selectedPoolId.value,
+      selectedSecurity.value.symbol,
+      undefined,
+      selectedSecurity.value.name || selectedSecurity.value.name_cn || selectedSecurity.value.name_hk || selectedSecurity.value.name_en || undefined
+    )
+    message.value = `${selectedSecurity.value.symbol} 已加入股票池`
+    await Promise.all([loadPools(), loadPoolSymbols()])
+  } catch (err) {
+    setError(err, '添加股票失败')
+  }
+}
+
 async function savePoolSymbolName(row: PoolSymbolRow) {
   await updatePoolSymbol(selectedPoolId.value, row.symbol, { name: row.name?.trim() || undefined })
   await loadPoolSymbols()
@@ -431,13 +485,62 @@ onUnmounted(() => {
             <h2>{{ selectedPool?.name || '股票池' }}</h2>
             <p>{{ poolSymbols.length }} 只股票，{{ enabledPoolSymbols.length }} 只启用</p>
           </div>
-          <div class="add-symbol-row">
-            <input v-model="newSymbol" placeholder="MSTU.US" @keyup.enter="handleAddPoolSymbol" />
-            <input v-model="newSymbolName" placeholder="股票名称，例如 MicroStrategy" @keyup.enter="handleAddPoolSymbol" />
-            <button class="icon-button primary" title="加入股票池" @click="handleAddPoolSymbol">
-              <Plus :size="18" />
+        </div>
+        <div class="security-search">
+          <div class="security-search-bar">
+            <select v-model="securityMarket" title="市场">
+              <option value="US">美股</option>
+              <option value="HK">港股</option>
+              <option value="CN">A股</option>
+              <option value="SG">新加坡</option>
+            </select>
+            <input v-model="securityQuery" placeholder="搜索股票代码或名称，例如 MSTU / MicroStrategy" @keyup.enter="handleSearchSecurities" />
+            <button class="submit secondary compact" :disabled="searchingSecurities" @click="handleSearchSecurities">
+              <Search :size="16" />
+              <span>{{ searchingSecurities ? '查询中' : '查询' }}</span>
             </button>
           </div>
+          <div v-if="securityResults.length" class="security-results">
+            <button
+              v-for="row in securityResults"
+              :key="row.symbol"
+              :class="{ selected: selectedSecurity?.symbol === row.symbol }"
+              type="button"
+              @click="selectSecurity(row)"
+            >
+              <strong>{{ row.symbol }}</strong>
+              <span>{{ row.name || row.name_cn || row.name_hk || row.name_en || '-' }}</span>
+              <small>{{ row.market || securityMarket }}</small>
+            </button>
+          </div>
+          <div v-if="selectedSecurity" class="security-info">
+            <div>
+              <strong>{{ selectedSecurity.symbol }}</strong>
+              <span>{{ selectedSecurity.name || selectedSecurity.name_cn || selectedSecurity.name_hk || selectedSecurity.name_en || '-' }}</span>
+            </div>
+            <dl>
+              <div><dt>交易所</dt><dd>{{ selectedSecurity.exchange || '-' }}</dd></div>
+              <div><dt>币种</dt><dd>{{ selectedSecurity.currency || '-' }}</dd></div>
+              <div><dt>每手</dt><dd>{{ selectedSecurity.lot_size || '-' }}</dd></div>
+              <div><dt>EPS</dt><dd>{{ selectedSecurity.eps_ttm ?? selectedSecurity.eps ?? '-' }}</dd></div>
+              <div><dt>BPS</dt><dd>{{ selectedSecurity.bps ?? '-' }}</dd></div>
+              <div><dt>股息率</dt><dd>{{ selectedSecurity.dividend_yield ?? '-' }}</dd></div>
+            </dl>
+            <button class="submit compact" @click="addSelectedSecurity">
+              <Plus :size="16" />
+              <span>加入股票池</span>
+            </button>
+          </div>
+          <details class="manual-add">
+            <summary>手动添加</summary>
+            <div class="add-symbol-row">
+              <input v-model="newSymbol" placeholder="MSTU.US" @keyup.enter="handleAddPoolSymbol" />
+              <input v-model="newSymbolName" placeholder="股票名称，例如 MicroStrategy" @keyup.enter="handleAddPoolSymbol" />
+              <button class="icon-button primary" title="加入股票池" @click="handleAddPoolSymbol">
+                <Plus :size="18" />
+              </button>
+            </div>
+          </details>
         </div>
         <div class="pool-table">
           <div class="pool-row header">

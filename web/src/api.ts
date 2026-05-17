@@ -34,6 +34,28 @@ export type PoolSymbolRow = {
   updated_at: string
 }
 
+export type SecurityRow = {
+  symbol: string
+  name?: string | null
+  name_en?: string | null
+  name_cn?: string | null
+  name_hk?: string | null
+  market?: string | null
+}
+
+export type SecurityInfo = SecurityRow & {
+  exchange?: string | null
+  currency?: string | null
+  lot_size?: number | null
+  board?: string | null
+  eps?: number | null
+  eps_ttm?: number | null
+  bps?: number | null
+  dividend_yield?: number | null
+  total_shares?: number | null
+  circulating_shares?: number | null
+}
+
 export type SyncPayload = {
   symbol: string
   period: string
@@ -97,6 +119,18 @@ export async function addSymbol(symbol: string, name?: string) {
 
 export async function setSymbolEnabled(symbol: string, enabled: boolean, name?: string) {
   const { data } = await http.patch<SymbolRow>(`/symbols/${symbol}`, { enabled, name })
+  return data
+}
+
+export async function searchSecurities(market: string, query: string, limit = 50) {
+  const { data } = await http.get<SecurityRow[]>('/securities', {
+    params: { market, q: query, limit }
+  })
+  return data
+}
+
+export async function fetchSecurityInfo(symbol: string) {
+  const { data } = await http.get<SecurityInfo>(`/securities/${symbol}`)
   return data
 }
 

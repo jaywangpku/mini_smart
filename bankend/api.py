@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from .config import load_settings
 from .factors import compute_derivative_factors
+from .longbridge_client import LongbridgeClient
 from .models import SyncRequest
 from .storage import Storage
 from .sync import TaskRunner, parse_date_or_datetime
@@ -130,6 +131,31 @@ def patch_symbol(symbol: str, payload: SymbolPatch) -> dict:
     result = storage.update_symbol(symbol, name=payload.name, market=payload.market, enabled=payload.enabled)
     if result is None:
         raise HTTPException(status_code=404, detail="symbol not found")
+    return result
+
+
+@app.get("/api/securities")
+def search_securities(
+    market: str = Query("US", description="US/HK/CN/SG"),
+    q: str = Query("", description="股票代码或名称关键字"),
+    limit: int = Query(50, ge=1, le=200),
+) -> list[dict]:
+    try:
+        return LongbridgeClient().search_securities(market=market, query=q, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
+@app.get("/api/securities/{symbol}")
+def get_security_info(symbol: str) -> dict:
+    try:
+        result = LongbridgeClient().static_info(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    if result is None:
+        raise HTTPException(status_code=404, detail="security not found")
     return result
 
 
