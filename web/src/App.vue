@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { BarChart3, Code2, Database, Edit3, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
+import { Activity, BarChart3, Code2, Database, Edit3, Play, Plus, RefreshCw, Save, Search, Trash2 } from 'lucide-vue-next'
 import {
   addPoolSymbol,
   createCustomFactor,
   createCustomStrategy,
   createBatchSyncTask,
   createPool,
+  createRealtimeSubscription,
+  deleteRealtimeSubscription,
   deleteCustomFactor,
   deleteCustomStrategy,
   deletePool,
@@ -14,6 +16,8 @@ import {
   fetchCustomFactors,
   fetchCustomStrategies,
   fetchCustomFactorValues,
+  fetchRealtimeSnapshot,
+  fetchRealtimeUpdates,
   fetchPoolSymbols,
   fetchPools,
   fetchSecurityInfo,
@@ -27,6 +31,7 @@ import {
   syncPool,
   syncPoolAllPeriods,
   updateCustomFactor,
+  updateRealtimeSubscription,
   updateCustomStrategy,
   updatePool,
   updatePoolSymbol,
@@ -49,12 +54,14 @@ import SideNav from './components/SideNav.vue'
 import StrategyResultPanel from './components/StrategyResultPanel.vue'
 import ToastMessage from './components/ToastMessage.vue'
 
-type TabName = 'pools' | 'sync' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies'
+type TabName = 'pools' | 'sync' | 'history' | 'realtime' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies'
 type ChartFactorPoint = { time: number; [key: string]: number | null | undefined }
 
 const tabs: Array<{ id: TabName; label: string; icon: unknown }> = [
   { id: 'pools', label: '股票池管理', icon: Database },
   { id: 'sync', label: '数据同步', icon: Play },
+  { id: 'history', label: '历史看板', icon: BarChart3 },
+  { id: 'realtime', label: '实时看板', icon: Activity },
   { id: 'customFactors', label: '自定义因子', icon: Code2 },
   { id: 'research', label: '因子研究', icon: BarChart3 },
   { id: 'customStrategies', label: '自定义策略', icon: Code2 },
@@ -70,6 +77,8 @@ const customFactors = ref<CustomFactor[]>([])
 const customStrategies = ref<CustomStrategy[]>([])
 const tasks = ref<SyncTask[]>([])
 const candles = ref<Candle[]>([])
+const historyCandles = ref<Candle[]>([])
+const historyFitKey = ref(0)
 const factors = ref<ChartFactorPoint[]>([])
 const selectedSymbols = ref<string[]>([])
 const researchSymbol = ref('')
@@ -95,6 +104,9 @@ const showNewFactorDialog = ref(false)
 const showEditFactorDialog = ref(false)
 const showParamDialog = ref(false)
 const showResearchParamDialog = ref(false)
+const showRealtimeIndicatorDialog = ref(false)
+const showRealtimeFactorDialog = ref(false)
+const showResearchFactorDialog = ref(false)
 const editingResearchParamKey = ref('')
 const activeParamDialog = ref<'ma' | 'ema' | 'boll' | ''>('')
 const newFactorDraft = ref({
@@ -161,6 +173,24 @@ const strategyResearchCandles = ref<Candle[]>([])
 const strategyResearchResult = ref<StrategyRunResult | null>(null)
 const strategyResearchFitKey = ref(0)
 const showStrategyResearchEquity = ref(false)
+const realtimeSelectedFactors = ref<string[]>([])
+const realtimeStrategyId = ref('')
+const realtimeStrategyParams = ref('{}')
+const realtimeCandles = ref<Candle[]>([])
+const realtimeFactors = ref<ChartFactorPoint[]>([])
+const realtimeStrategyResult = ref<StrategyRunResult | null>(null)
+const realtimeFitKey = ref(0)
+const realtimeWarmupBars = ref(1000)
+const realtimePollInterval = ref(5)
+const realtimeStatus = ref('未连接')
+const realtimeSource = ref('-')
+const realtimeUpdatedAt = ref('')
+const realtimeWarning = ref('')
+const realtimeConnected = ref(false)
+const realtimeSubscriptionId = ref('')
+const realtimeSince = ref<number | undefined>()
+const showRealtimeEquity = ref(false)
+const showRealtimeStrategyParamDialog = ref(false)
 const strategyInitialCash = ref(100000)
 const strategyFeeRate = ref(0.0003)
 const strategySlippageRate = ref(0.0002)
@@ -178,11 +208,14 @@ const visibleCandleCount = ref(160)
 const chartFitKey = ref(0)
 const loadingOlder = ref(false)
 const reachedHistoryStart = ref(false)
+const loadingOlderHistory = ref(false)
+const reachedHistoryStartForHistory = ref(false)
 const loading = ref(false)
 const message = ref('')
 const error = ref('')
 let toastTimer: number | undefined
 let timer: number | undefined
+let realtimeTimer: number | undefined
 
 const selectedPool = computed(() => pools.value.find((pool) => pool.id === selectedPoolId.value))
 const enabledPoolSymbols = computed(() => poolSymbols.value.filter((row) => row.enabled))
@@ -192,6 +225,7 @@ const selectedCustomFactor = computed(() => customFactors.value.find((factor) =>
 const enabledCustomStrategies = computed(() => customStrategies.value.filter((strategy) => strategy.enabled))
 const selectedCustomStrategy = computed(() => customStrategies.value.find((strategy) => strategy.id === selectedCustomStrategyId.value))
 const selectedResearchStrategy = computed(() => customStrategies.value.find((strategy) => strategy.id === strategyResearchStrategyId.value))
+const selectedRealtimeStrategy = computed(() => customStrategies.value.find((strategy) => strategy.id === realtimeStrategyId.value))
 const previewFactorKey = 'custom_preview'
 const previewFactorSeries = computed(() => [
   {
@@ -283,6 +317,11 @@ async function loadCustomStrategies() {
     strategyResearchStrategyId.value = strategy.id
     strategyResearchParams.value = prettyJson(strategy.default_params)
   }
+  if (!realtimeStrategyId.value && enabledCustomStrategies.value.length) {
+    const strategy = enabledCustomStrategies.value[0]
+    realtimeStrategyId.value = strategy.id
+    realtimeStrategyParams.value = prettyJson(strategy.default_params)
+  }
 }
 
 async function loadTasks() {
@@ -310,6 +349,17 @@ async function loadChart(options: { resetView?: boolean } = {}) {
   factors.value = nextFactors
   reachedHistoryStart.value = false
   if (options.resetView) chartFitKey.value += 1
+}
+
+async function loadHistoryChart(options: { resetView?: boolean } = {}) {
+  if (!researchSymbol.value) {
+    historyCandles.value = []
+    reachedHistoryStartForHistory.value = false
+    return
+  }
+  historyCandles.value = await fetchCandles(researchSymbol.value, period.value, adjustType.value, chartLimitForPeriod(period.value))
+  reachedHistoryStartForHistory.value = false
+  if (options.resetView) historyFitKey.value += 1
 }
 
 function mergeByTime<T extends { time: number }>(current: T[], incoming: T[]) {
@@ -343,6 +393,29 @@ async function loadOlderChartData() {
     setError(err, '加载历史K线失败')
   } finally {
     loadingOlder.value = false
+  }
+}
+
+async function loadOlderHistoryChartData() {
+  if (loadingOlderHistory.value || reachedHistoryStartForHistory.value || !researchSymbol.value || !historyCandles.value.length) return
+  loadingOlderHistory.value = true
+  error.value = ''
+  try {
+    const endTime = historyCandles.value[0].time - 1
+    const limit = chartLimitForPeriod(period.value)
+    const olderCandles = await fetchCandles(researchSymbol.value, period.value, adjustType.value, limit, { end: endTime })
+
+    if (!olderCandles.length) {
+      reachedHistoryStartForHistory.value = true
+      return
+    }
+
+    historyCandles.value = mergeByTime(historyCandles.value, olderCandles)
+    if (olderCandles.length < limit) reachedHistoryStartForHistory.value = true
+  } catch (err) {
+    setError(err, '加载历史看板K线失败')
+  } finally {
+    loadingOlderHistory.value = false
   }
 }
 
@@ -496,6 +569,14 @@ function closeResearchStrategyParamDialog() {
   showResearchStrategyParamDialog.value = false
 }
 
+function openRealtimeStrategyParamDialog() {
+  showRealtimeStrategyParamDialog.value = true
+}
+
+function closeRealtimeStrategyParamDialog() {
+  showRealtimeStrategyParamDialog.value = false
+}
+
 function openNewCustomFactorDialog() {
   newFactorDraft.value = {
     code: '',
@@ -541,6 +622,30 @@ function openResearchParamDialog(key: string) {
 function closeResearchParamDialog() {
   showResearchParamDialog.value = false
   editingResearchParamKey.value = ''
+}
+
+function openRealtimeIndicatorDialog() {
+  showRealtimeIndicatorDialog.value = true
+}
+
+function closeRealtimeIndicatorDialog() {
+  showRealtimeIndicatorDialog.value = false
+}
+
+function openRealtimeFactorDialog() {
+  showRealtimeFactorDialog.value = true
+}
+
+function closeRealtimeFactorDialog() {
+  showRealtimeFactorDialog.value = false
+}
+
+function openResearchFactorDialog() {
+  showResearchFactorDialog.value = true
+}
+
+function closeResearchFactorDialog() {
+  showResearchFactorDialog.value = false
 }
 
 function openSimpleParamDialog(type: 'ma' | 'ema' | 'boll') {
@@ -857,6 +962,137 @@ async function runStrategyResearch() {
   }
 }
 
+function realtimePayload() {
+  const factorParams: Record<string, Record<string, unknown>> = {}
+  for (const key of realtimeSelectedFactors.value) {
+    factorParams[key] = parseJsonObject(customFactorParamText.value[key] || '{}')
+  }
+  return {
+    symbol: researchSymbol.value,
+    period: period.value,
+    adjust_type: adjustType.value,
+    factor_ids: realtimeSelectedFactors.value,
+    factor_params: factorParams,
+    strategy_id: realtimeStrategyId.value || null,
+    strategy_params: realtimeStrategyId.value ? parseJsonObject(realtimeStrategyParams.value) : {},
+    warmup_bars: realtimeWarmupBars.value,
+    poll_interval: realtimePollInterval.value,
+    backtest: {
+      initial_cash: strategyInitialCash.value,
+      fee_rate: strategyFeeRate.value,
+      slippage_rate: strategySlippageRate.value
+    }
+  }
+}
+
+function applyRealtimeSnapshot(payload: {
+  type?: string
+  status?: { source?: string; updated_at?: string | null; warning?: string | null }
+  candles?: Candle[]
+  factors?: ChartFactorPoint[]
+  strategy_result?: StrategyRunResult | null
+}) {
+  realtimeCandles.value = mergeByTime(realtimeCandles.value, payload.candles || [])
+  realtimeFactors.value = mergeByTime(realtimeFactors.value, payload.factors || [])
+  if (payload.strategy_result) {
+    if (payload.type === 'updates' && realtimeStrategyResult.value) {
+      realtimeStrategyResult.value = {
+        ...payload.strategy_result,
+        signals: mergeStrategySignals(realtimeStrategyResult.value.signals, payload.strategy_result.signals || [])
+      }
+    } else {
+      realtimeStrategyResult.value = payload.strategy_result
+    }
+  }
+  realtimeSource.value = payload.status?.source || realtimeSource.value || '-'
+  realtimeUpdatedAt.value = payload.status?.updated_at || realtimeUpdatedAt.value
+  realtimeWarning.value = payload.status?.warning || ''
+  realtimeSince.value = realtimeCandles.value.at(-1)?.time
+}
+
+function mergeStrategySignals(current: StrategyRunResult['signals'], incoming: StrategyRunResult['signals']) {
+  const byKey = new Map<string, StrategyRunResult['signals'][number]>()
+  for (const signal of current) byKey.set(`${signal.time}:${signal.action}:${signal.quantity}`, signal)
+  for (const signal of incoming) byKey.set(`${signal.time}:${signal.action}:${signal.quantity}`, signal)
+  return [...byKey.values()].sort((a, b) => a.time - b.time)
+}
+
+async function pullRealtimeUpdates() {
+  if (!realtimeSubscriptionId.value) return
+  try {
+    const payload = await fetchRealtimeUpdates(realtimeSubscriptionId.value, realtimeSince.value)
+    applyRealtimeSnapshot(payload)
+  } catch (err) {
+    setError(err, '拉取实时增量失败')
+  }
+}
+
+function scheduleRealtimePolling() {
+  if (realtimeTimer) window.clearInterval(realtimeTimer)
+  const interval = Math.max(1, Math.min(realtimePollInterval.value || 5, 60)) * 1000
+  realtimeTimer = window.setInterval(pullRealtimeUpdates, interval)
+}
+
+async function startRealtime() {
+  if (!researchSymbol.value) {
+    setError(new Error('请先选择股票'), '请先选择股票')
+    return
+  }
+  realtimeStatus.value = '连接中'
+  realtimeWarning.value = ''
+  realtimeCandles.value = []
+  realtimeFactors.value = []
+  realtimeStrategyResult.value = null
+  realtimeSince.value = undefined
+  try {
+    if (realtimeSubscriptionId.value) await deleteRealtimeSubscription(realtimeSubscriptionId.value)
+    const status = await createRealtimeSubscription(realtimePayload())
+    realtimeSubscriptionId.value = status.id
+    const snapshot = await fetchRealtimeSnapshot(status.id)
+    applyRealtimeSnapshot(snapshot)
+    realtimeConnected.value = true
+    realtimeStatus.value = '运行中'
+    realtimeFitKey.value += 1
+    scheduleRealtimePolling()
+  } catch (err) {
+    setError(err, '启动实时看板失败')
+  }
+}
+
+async function stopRealtime(clearStatus = true) {
+  if (realtimeTimer) {
+    window.clearInterval(realtimeTimer)
+    realtimeTimer = undefined
+  }
+  if (realtimeSubscriptionId.value) {
+    try {
+      await deleteRealtimeSubscription(realtimeSubscriptionId.value)
+    } catch {
+      // 订阅已经不存在时，前端仍然清理本地状态。
+    }
+    realtimeSubscriptionId.value = ''
+  }
+  realtimeConnected.value = false
+  if (clearStatus) realtimeStatus.value = '已停止'
+}
+
+async function refreshRealtime() {
+  if (realtimeConnected.value) {
+    if (realtimeSubscriptionId.value) {
+      await updateRealtimeSubscription(realtimeSubscriptionId.value, realtimePayload())
+      const snapshot = await fetchRealtimeSnapshot(realtimeSubscriptionId.value)
+      realtimeCandles.value = []
+      realtimeFactors.value = []
+      realtimeStrategyResult.value = null
+      realtimeSince.value = undefined
+      applyRealtimeSnapshot(snapshot)
+      scheduleRealtimePolling()
+    }
+  } else {
+    await startRealtime()
+  }
+}
+
 watch(customPreviewPoolId, async (poolId) => {
   error.value = ''
   try {
@@ -881,6 +1117,23 @@ watch(strategyResearchStrategyId, (strategyId) => {
   const strategy = customStrategies.value.find((item) => item.id === strategyId)
   if (strategy) strategyResearchParams.value = prettyJson(strategy.default_params)
 })
+
+watch(realtimeStrategyId, (strategyId) => {
+  const strategy = customStrategies.value.find((item) => item.id === strategyId)
+  realtimeStrategyParams.value = strategy ? prettyJson(strategy.default_params) : '{}'
+})
+
+watch(realtimeSelectedFactors, (value) => {
+  if (value.length > 2) realtimeSelectedFactors.value = value.slice(0, 2)
+}, { deep: true })
+
+watch(
+  [researchSymbol, period, adjustType, realtimeSelectedFactors, realtimeStrategyId, realtimeWarmupBars, realtimePollInterval],
+  () => {
+    if (realtimeConnected.value) refreshRealtime()
+  },
+  { deep: true }
+)
 
 function openNewPoolDialog() {
   newPoolDraft.value = { name: '', description: '' }
@@ -1105,6 +1358,14 @@ watch([researchSymbol, period, adjustType, selectedFactors, customFactorParamTex
   loadChart().catch((err) => setError(err, '加载图表失败'))
 }, { deep: true })
 
+watch([researchSymbol, period, adjustType], () => {
+  if (activeTab.value === 'history') loadHistoryChart().catch((err) => setError(err, '加载历史看板失败'))
+})
+
+watch(activeTab, (tab) => {
+  if (tab === 'history') loadHistoryChart({ resetView: true }).catch((err) => setError(err, '加载历史看板失败'))
+})
+
 onMounted(() => {
   bootstrap()
   timer = window.setInterval(async () => {
@@ -1116,6 +1377,8 @@ onMounted(() => {
 onUnmounted(() => {
   if (timer) window.clearInterval(timer)
   if (toastTimer) window.clearTimeout(toastTimer)
+  if (realtimeTimer) window.clearInterval(realtimeTimer)
+  stopRealtime(false)
 })
 </script>
 
@@ -1399,6 +1662,190 @@ onUnmounted(() => {
           </div>
         </div>
       </section>
+      </section>
+
+      <section v-if="activeTab === 'history'" class="research-layout">
+        <aside class="panel research-controls">
+          <div class="panel-title">
+            <BarChart3 :size="17" />
+            <span>历史看板</span>
+          </div>
+          <label>
+            股票池
+            <select v-model="selectedPoolId">
+              <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+            </select>
+          </label>
+          <label>
+            股票
+            <select v-model="researchSymbol">
+              <option v-for="row in enabledPoolSymbols" :key="row.symbol" :value="row.symbol">
+                {{ row.symbol }}{{ row.name ? ` · ${row.name}` : '' }}
+              </option>
+            </select>
+          </label>
+          <label>
+            周期
+            <select v-model="period">
+              <option value="1min">1min</option>
+              <option value="5min">5min</option>
+              <option value="15min">15min</option>
+              <option value="30min">30min</option>
+              <option value="60min">60min</option>
+              <option value="day">day</option>
+            </select>
+          </label>
+          <label>
+            复权
+            <select v-model="adjustType">
+              <option value="forward">前复权</option>
+              <option value="no_adjust">不复权</option>
+            </select>
+          </label>
+          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeIndicatorDialog">
+            K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
+          </button>
+          <button class="submit" @click="loadHistoryChart({ resetView: true })">
+            <RefreshCw :size="17" />
+            <span>刷新图表</span>
+          </button>
+        </aside>
+
+        <section class="main-panel research-panel">
+          <div class="chart-head">
+            <div>
+              <h2>{{ researchSymbol || '请选择股票' }} · {{ period }}</h2>
+              <p>{{ historyCandles.length }} 根历史K线</p>
+            </div>
+          </div>
+          <KlineChart
+            :candles="historyCandles"
+            :factors="[]"
+            :selected-factors="[]"
+            :factor-series="[]"
+            :fit-key="historyFitKey"
+            :show-vwap="showVwap"
+            :show-ma="showMa"
+            :show-ema="showEma"
+            :show-bollinger="showBollinger"
+            :ma-period="maPeriod"
+            :ema-period="emaPeriod"
+            :bollinger-period="bollingerPeriod"
+            :bollinger-multiplier="bollingerMultiplier"
+            v-model:visible-candle-count="visibleCandleCount"
+            @load-older="loadOlderHistoryChartData"
+          />
+        </section>
+      </section>
+
+      <section v-if="activeTab === 'realtime'" class="research-layout">
+        <aside class="panel research-controls">
+          <div class="panel-title">
+            <Activity :size="17" />
+            <span>实时看板</span>
+          </div>
+          <label>
+            股票池
+            <select v-model="selectedPoolId">
+              <option v-for="pool in pools" :key="pool.id" :value="pool.id">{{ pool.name }}</option>
+            </select>
+          </label>
+          <label>
+            股票
+            <select v-model="researchSymbol">
+              <option v-for="row in enabledPoolSymbols" :key="row.symbol" :value="row.symbol">
+                {{ row.symbol }}{{ row.name ? ` · ${row.name}` : '' }}
+              </option>
+            </select>
+          </label>
+          <label>
+            周期
+            <select v-model="period">
+              <option value="1min">1min</option>
+              <option value="5min">5min</option>
+              <option value="15min">15min</option>
+              <option value="30min">30min</option>
+              <option value="60min">60min</option>
+            </select>
+          </label>
+          <label>
+            复权
+            <select v-model="adjustType">
+              <option value="forward">前复权</option>
+              <option value="no_adjust">不复权</option>
+            </select>
+          </label>
+          <label>
+            刷新秒数
+            <input v-model.number="realtimePollInterval" type="number" min="1" max="60" step="1" />
+          </label>
+          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeIndicatorDialog">
+            K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
+          </button>
+          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeFactorDialog">
+            实时因子 · {{ realtimeSelectedFactors.length }} / 2
+          </button>
+          <label>
+            实时策略
+            <select v-model="realtimeStrategyId">
+              <option value="">不运行策略</option>
+              <option v-for="strategy in enabledCustomStrategies" :key="strategy.id" :value="strategy.id">{{ strategy.name }}</option>
+            </select>
+          </label>
+          <button class="ghost param-button strategy-param-button" type="button" :disabled="!realtimeStrategyId" @click="openRealtimeStrategyParamDialog">策略参数</button>
+          <div class="sync-actions realtime-actions">
+            <button class="submit compact" :disabled="realtimeConnected" @click="startRealtime">
+              <Play :size="17" />
+              <span>启动</span>
+            </button>
+            <button class="submit secondary compact" @click="refreshRealtime">
+              <RefreshCw :size="17" />
+              <span>刷新</span>
+            </button>
+            <button class="submit danger compact" :disabled="!realtimeConnected" @click="() => stopRealtime()">
+              <Trash2 :size="17" />
+              <span>停止</span>
+            </button>
+          </div>
+        </aside>
+
+        <section class="main-panel research-panel">
+          <div class="chart-head">
+            <div>
+              <h2>实时行情与信号</h2>
+              <p>
+                {{ realtimeStatus }} · {{ realtimeSource }}
+                <template v-if="realtimeUpdatedAt"> · {{ realtimeUpdatedAt }}</template>
+              </p>
+            </div>
+          </div>
+          <div v-if="realtimeWarning" class="empty-state">{{ realtimeWarning }}</div>
+          <KlineChart
+            :candles="realtimeCandles"
+            :factors="realtimeFactors"
+            :selected-factors="realtimeSelectedFactors"
+            :factor-series="factorSeriesMeta"
+            :fit-key="realtimeFitKey"
+            :show-vwap="showVwap"
+            :show-ma="showMa"
+            :show-ema="showEma"
+            :show-bollinger="showBollinger"
+            :ma-period="maPeriod"
+            :ema-period="emaPeriod"
+            :bollinger-period="bollingerPeriod"
+            :bollinger-multiplier="bollingerMultiplier"
+            :trade-signals="realtimeStrategyResult?.signals || []"
+            lock-today-range
+            v-model:visible-candle-count="visibleCandleCount"
+            @load-older="() => {}"
+          />
+          <StrategyResultPanel
+            v-if="realtimeStrategyResult"
+            :result="realtimeStrategyResult"
+            show-cash-position
+            v-model:show-equity="showRealtimeEquity"
+          />
+        </section>
       </section>
 
       <section v-if="activeTab === 'customFactors'" class="custom-factor-layout">
@@ -1926,6 +2373,19 @@ onUnmounted(() => {
         </section>
       </div>
 
+      <div v-if="showRealtimeStrategyParamDialog" class="modal-backdrop" @click.self="closeRealtimeStrategyParamDialog">
+        <section class="modal-panel param-modal">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>{{ selectedRealtimeStrategy?.name || '实时策略' }} 参数 JSON</span>
+          </div>
+          <CodeEditor v-model="realtimeStrategyParams" language="json" />
+          <div class="modal-actions">
+            <button class="ghost" @click="closeRealtimeStrategyParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
       <div v-if="showResearchParamDialog" class="modal-backdrop" @click.self="closeResearchParamDialog">
         <section class="modal-panel param-modal">
           <div class="panel-title">
@@ -1935,6 +2395,108 @@ onUnmounted(() => {
           <CodeEditor v-model="customFactorParamText[editingResearchParamKey]" language="json" />
           <div class="modal-actions">
             <button class="ghost" @click="closeResearchParamDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showRealtimeIndicatorDialog" class="modal-backdrop" @click.self="closeRealtimeIndicatorDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <BarChart3 :size="17" />
+            <span>K线指标</span>
+          </div>
+          <div class="factor-picker modal-check-list">
+            <div class="indicator-option-row">
+              <label class="check-row">
+                <input v-model="showVwap" type="checkbox" />
+                VWAP
+              </label>
+            </div>
+            <div class="indicator-option-row">
+              <label class="check-row">
+                <input v-model="showMa" type="checkbox" />
+                MA
+              </label>
+              <button v-if="showMa" class="ghost param-button" type="button" @click="openSimpleParamDialog('ma')">参数配置</button>
+            </div>
+            <div class="indicator-option-row">
+              <label class="check-row">
+                <input v-model="showEma" type="checkbox" />
+                EMA
+              </label>
+              <button v-if="showEma" class="ghost param-button" type="button" @click="openSimpleParamDialog('ema')">参数配置</button>
+            </div>
+            <div class="indicator-option-row">
+              <label class="check-row">
+                <input v-model="showBollinger" type="checkbox" />
+                BOLL
+              </label>
+              <button v-if="showBollinger" class="ghost param-button" type="button" @click="openSimpleParamDialog('boll')">参数配置</button>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeRealtimeIndicatorDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showRealtimeFactorDialog" class="modal-backdrop" @click.self="closeRealtimeFactorDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>实时因子（最多2个）</span>
+          </div>
+          <div class="factor-picker modal-check-list">
+            <div v-for="factor in enabledCustomFactors" :key="factor.id" class="factor-option-row">
+              <label class="check-row">
+                <input
+                  v-model="realtimeSelectedFactors"
+                  type="checkbox"
+                  :value="customFactorKey(factor.id)"
+                  :disabled="!realtimeSelectedFactors.includes(customFactorKey(factor.id)) && realtimeSelectedFactors.length >= 2"
+                />
+                {{ factor.name }}
+              </label>
+              <button
+                v-if="realtimeSelectedFactors.includes(customFactorKey(factor.id))"
+                class="ghost param-button"
+                type="button"
+                @click="openResearchParamDialog(customFactorKey(factor.id))"
+              >
+                参数配置
+              </button>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeRealtimeFactorDialog">完成</button>
+          </div>
+        </section>
+      </div>
+
+      <div v-if="showResearchFactorDialog" class="modal-backdrop" @click.self="closeResearchFactorDialog">
+        <section class="modal-panel">
+          <div class="panel-title">
+            <Code2 :size="17" />
+            <span>因子指标</span>
+          </div>
+          <div class="factor-picker modal-check-list">
+            <div v-for="factor in enabledCustomFactors" :key="factor.id" class="factor-option-row">
+              <label class="check-row">
+                <input v-model="selectedFactors" type="checkbox" :value="customFactorKey(factor.id)" />
+                {{ factor.name }}
+              </label>
+              <button
+                v-if="selectedFactors.includes(customFactorKey(factor.id))"
+                class="ghost param-button"
+                type="button"
+                @click="openResearchParamDialog(customFactorKey(factor.id))"
+              >
+                参数配置
+              </button>
+            </div>
+          </div>
+          <div class="modal-actions">
+            <button class="ghost" @click="closeResearchFactorDialog">完成</button>
           </div>
         </section>
       </div>
@@ -2007,23 +2569,9 @@ onUnmounted(() => {
             <option value="no_adjust">不复权</option>
           </select>
         </label>
-        <div class="factor-picker">
-          <div class="factor-config-title">因子指标</div>
-          <div v-for="factor in enabledCustomFactors" :key="factor.id" class="factor-option-row">
-            <label class="check-row">
-              <input v-model="selectedFactors" type="checkbox" :value="customFactorKey(factor.id)" />
-              {{ factor.name }}
-            </label>
-            <button
-              v-if="selectedFactors.includes(customFactorKey(factor.id))"
-              class="ghost param-button"
-              type="button"
-              @click="openResearchParamDialog(customFactorKey(factor.id))"
-            >
-              参数配置
-            </button>
-          </div>
-        </div>
+        <button class="ghost param-button strategy-param-button" type="button" @click="openResearchFactorDialog">
+          因子指标 · {{ selectedFactors.length }} 项
+        </button>
         <button class="submit" @click="loadChart({ resetView: true })">
           <RefreshCw :size="17" />
           <span>刷新图表</span>

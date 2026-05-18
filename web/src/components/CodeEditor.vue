@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import * as monaco from 'monaco-editor'
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const emit = defineEmits<{
 }>()
 
 const host = ref<HTMLDivElement | null>(null)
+const isFullscreen = ref(false)
 let editor: monaco.editor.IStandaloneCodeEditor | undefined
 let subscription: monaco.IDisposable | undefined
 let resizeObserver: ResizeObserver | undefined
@@ -58,8 +59,19 @@ onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   editor?.dispose()
 })
+
+async function toggleFullscreen() {
+  isFullscreen.value = !isFullscreen.value
+  await nextTick()
+  editor?.layout()
+}
 </script>
 
 <template>
-  <div ref="host" class="code-editor"></div>
+  <div :class="['code-editor-shell', { fullscreen: isFullscreen }]">
+    <button class="fullscreen-toggle" type="button" @click="toggleFullscreen">
+      {{ isFullscreen ? '退出全屏' : '全屏' }}
+    </button>
+    <div ref="host" class="code-editor"></div>
+  </div>
 </template>

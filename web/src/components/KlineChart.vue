@@ -30,6 +30,9 @@ const props = defineProps<{
   bollingerMultiplier: number
   visibleCandleCount: number
   tradeSignals?: TradeSignal[]
+  showTodayButton?: boolean
+  rangeButtons?: boolean
+  lockTodayRange?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -50,6 +53,7 @@ const factorHosts = new Map<string, HTMLDivElement>()
 const hoverTime = ref<number | null>(null)
 const sizeStep = ref(20)
 const moveStep = ref(40)
+const selectedSessionCount = ref(1)
 let candleChart: IChartApi | undefined
 let candleSeries: ISeriesApi<'Candlestick'> | undefined
 let vwapSeries: ISeriesApi<'Line'> | undefined
@@ -230,6 +234,15 @@ function setPrimaryVisibleRange(from: number, to: number) {
   syncVisibleRange(candleChart)
 }
 
+function setRangeWithRightOffset(from: number, to: number, rightOffset = 10) {
+  if (!candleChart) return
+  const maxIndex = Math.max(props.candles.length - 1, 0)
+  const nextFrom = Math.max(0, Math.min(from, maxIndex))
+  const nextTo = Math.max(nextFrom + 1, Math.min(to, maxIndex) + rightOffset)
+  candleChart.timeScale().setVisibleLogicalRange({ from: nextFrom, to: nextTo })
+  syncVisibleRange(candleChart)
+}
+
 function shiftVisibleRange(amount: number) {
   const range = currentVisibleRange()
   if (!range) return
@@ -243,6 +256,25 @@ function resizeVisibleCount(nextCount: number) {
   const range = currentVisibleRange()
   const to = range?.to ?? Math.max(props.candles.length - 1, 0)
   setPrimaryVisibleRange(to - count + 1, to)
+}
+
+function showRecentSessions(sessionCount: number) {
+  if (!props.candles.length) return
+  selectedSessionCount.value = sessionCount
+  const sessions = [...new Set(props.candles.map((item) => sessionKey(item.time)))]
+  const selectedSessions = new Set(sessions.slice(-Math.max(1, sessionCount)))
+  const allIndexes = props.candles
+    .map((item, index) => selectedSessions.has(sessionKey(item.time)) ? index : -1)
+    .filter((index) => index >= 0)
+  const firstIndex = allIndexes.length > 280 ? allIndexes[allIndexes.length - 280] : allIndexes[0]
+  if (firstIndex < 0) return
+  const lastIndex = props.candles.length - 1
+  emit('update:visibleCandleCount', lastIndex - firstIndex + 1)
+  setRangeWithRightOffset(firstIndex, lastIndex, 10)
+}
+
+function showTodayCandles() {
+  showRecentSessions(1)
 }
 
 function factorValue(point: FactorPoint, key: string) {
@@ -423,7 +455,13 @@ function render() {
       })
     )
   }
-  if (candleChart && props.fitKey !== lastFitKey) {
+  if (candleChart && props.lockTodayRange) {
+    showRecentSessions(1)
+    lastFitKey = props.fitKey
+  } else if (candleChart && props.rangeButtons) {
+    showRecentSessions(selectedSessionCount.value)
+    lastFitKey = props.fitKey
+  } else if (candleChart && props.fitKey !== lastFitKey) {
     suppressOlderRequest = true
     const count = normalizedVisibleCount()
     const to = Math.max(props.candles.length - 1, 0)
@@ -454,7 +492,9 @@ function createFactorChart(key: string, host: HTMLDivElement) {
     },
     rightPriceScale: {
       borderColor: chartTheme.border,
-      minimumWidth: 72
+      minimumWidth: 82,
+      ticksVisible: true,
+      entireTextOnly: false
     },
     timeScale: {
       borderColor: chartTheme.border,
@@ -633,11 +673,22 @@ watch(() => [props.selectedFactors, props.factorSeries], syncFactorCharts, { dee
 
 <template>
   <div class="chart-stack">
-    <div class="chart-nav-bar">
+    <div v-if="rangeButtons && !lockTodayRange" class="chart-nav-bar">
+      <button type="button" title="展示今天" @click="showRecentSessions(1)">今天</button>
+      <button type="button" title="展示近三天" @click="showRecentSessions(3)">近三天</button>
+      <button type="button" title="展示近5天" @click="showRecentSessions(5)">近5天</button>
+      <button type="button" title="展示近10天" @click="showRecentSessions(10)">近10天</button>
+    </div>
+    <div v-else-if="!lockTodayRange" class="chart-nav-bar">
       <button type="button" title="向左翻页" @click="shiftVisibleRange(-normalizedVisibleCount())">‹‹</button>
       <button type="button" title="向左滑动" @click="shiftVisibleRange(-normalizedStep(moveStep, 40))">‹</button>
       <button type="button" title="增加展示数量" @click="resizeVisibleCount(normalizedVisibleCount() + normalizedStep(sizeStep, 20))">+</button>
-      <span>展示 {{ normalizedVisibleCount() }} 根</span>
+      <label class="visible-count-field">
+        展示
+        <input :value="normalizedVisibleCount()" type="number" min="20" max="2000" @change="resizeVisibleCount(Number(($event.target as HTMLInputElement).value))" />
+        根
+      </label>
+      <button v-if="showTodayButton" type="button" title="展示今天" @click="showTodayCandles">今天</button>
       <button type="button" title="减少展示数量" @click="resizeVisibleCount(normalizedVisibleCount() - normalizedStep(sizeStep, 20))">-</button>
       <button type="button" title="向右滑动" @click="shiftVisibleRange(normalizedStep(moveStep, 40))">›</button>
       <button type="button" title="向右翻页" @click="shiftVisibleRange(normalizedVisibleCount())">››</button>

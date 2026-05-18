@@ -489,8 +489,20 @@ label {
 }
 
 .chart-stack {
+  position: relative;
   display: grid;
   gap: 8px;
+}
+
+.code-editor-shell.fullscreen {
+  position: fixed;
+  inset: 18px;
+  z-index: 1000;
+  border: 1px solid #cbd7e6;
+  border-radius: 10px;
+  padding: 12px;
+  background: #ffffff;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.24);
 }
 
 .chart-nav-bar {
@@ -528,6 +540,10 @@ label {
   margin-top: 0;
   color: #52647b;
   font-size: 13px;
+}
+
+.chart-nav-bar .visible-count-field {
+  grid-template-columns: auto 72px auto;
 }
 
 .chart-nav-bar input {
@@ -1094,11 +1110,33 @@ label {
   white-space: nowrap;
 }
 
+.code-editor-shell {
+  position: relative;
+}
+
+.fullscreen-toggle {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  height: 28px;
+  border: 1px solid #cad5e2;
+  border-radius: 6px;
+  padding: 0 10px;
+  color: #24324a;
+  background: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+}
+
 .code-editor {
   height: 620px;
   overflow: hidden;
   border: 1px solid rgba(15, 23, 42, 0.18);
   border-radius: 8px;
+}
+
+.code-editor-shell.fullscreen .code-editor {
+  height: calc(100vh - 60px);
 }
 
 .param-modal {
@@ -1319,6 +1357,12 @@ label {
   background: #f8fafc;
   color: #52647b;
   font-size: 13px;
+}
+
+.modal-check-list {
+  max-height: 52vh;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .factor-option-row {
@@ -1913,6 +1957,10 @@ textarea:focus {
 
 .sync-actions .submit {
   width: 100%;
+}
+
+.realtime-actions {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .modal-actions .ghost,

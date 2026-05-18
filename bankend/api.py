@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,17 +22,20 @@ from .schemas import (
     PoolPatch,
     PoolSymbolCreate,
     PoolSymbolPatch,
+    RealtimeSubscription,
     SymbolCreate,
     SymbolPatch,
     SyncCreate,
 )
 from .storage import Storage
+from .realtime import RealtimeManager
 from .strategies import run_custom_strategy
 from .sync import TaskRunner
 
 
 settings = load_settings()
 storage = Storage(settings.db_path)
+realtime_manager = RealtimeManager(storage)
 app = FastAPI(title="mini_smart API")
 
 app.add_middleware(
@@ -403,6 +407,57 @@ def get_task(task_id: str) -> dict:
 @app.get("/api/sync/status")
 def sync_status() -> list[dict]:
     return storage.list_sync_state()
+
+
+@app.post("/api/realtime/subscriptions")
+def create_realtime_subscription(payload: RealtimeSubscription) -> dict:
+    storage.init_db()
+    try:
+        return realtime_manager.create(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.patch("/api/realtime/subscriptions/{subscription_id}")
+def update_realtime_subscription(subscription_id: str, payload: RealtimeSubscription) -> dict:
+    try:
+        return realtime_manager.update(subscription_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="realtime subscription not found") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.delete("/api/realtime/subscriptions/{subscription_id}")
+def delete_realtime_subscription(subscription_id: str) -> dict:
+    try:
+        return realtime_manager.delete(subscription_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="realtime subscription not found") from exc
+
+
+@app.get("/api/realtime/subscriptions/{subscription_id}/status")
+def get_realtime_subscription_status(subscription_id: str) -> dict:
+    try:
+        return realtime_manager.status(subscription_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="realtime subscription not found") from exc
+
+
+@app.get("/api/realtime/subscriptions/{subscription_id}/snapshot")
+def get_realtime_subscription_snapshot(subscription_id: str) -> dict:
+    try:
+        return realtime_manager.snapshot(subscription_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="realtime subscription not found") from exc
+
+
+@app.get("/api/realtime/subscriptions/{subscription_id}/updates")
+def get_realtime_subscription_updates(subscription_id: str, since: Optional[int] = None) -> dict:
+    try:
+        return realtime_manager.updates(subscription_id, since)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="realtime subscription not found") from exc
 
 
 @app.get("/api/candles")

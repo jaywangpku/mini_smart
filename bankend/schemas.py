@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from .models import SyncRequest
 from .sync import parse_date_or_datetime
@@ -103,6 +103,19 @@ class CustomStrategyRun(BaseModel):
     start: Optional[int] = None
     end: Optional[int] = None
     backtest: BacktestOptions = BacktestOptions()
+
+
+class RealtimeSubscription(BaseModel):
+    symbol: str
+    period: str = "1min"
+    adjust_type: str = "forward"
+    factor_ids: list[str] = Field(default_factory=list)
+    factor_params: dict[str, dict] = Field(default_factory=dict)
+    strategy_id: Optional[str] = None
+    strategy_params: dict = Field(default_factory=dict)
+    backtest: BacktestOptions = BacktestOptions()
+    warmup_bars: int = 1000
+    poll_interval: float = 5
 
 
 class BatchSyncCreate(BaseModel):

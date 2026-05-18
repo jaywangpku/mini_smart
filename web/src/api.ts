@@ -168,8 +168,81 @@ export type StrategyRunResult = {
   }
 }
 
+export type RealtimePayload = {
+  symbol: string
+  period: string
+  adjust_type: string
+  factor_ids: string[]
+  factor_params: Record<string, Record<string, unknown>>
+  strategy_id?: string | null
+  strategy_params: Record<string, unknown>
+  warmup_bars: number
+  poll_interval: number
+  backtest: {
+    initial_cash: number
+    fee_rate: number
+    slippage_rate: number
+  }
+}
+
+export type RealtimeSnapshot = {
+  type: 'snapshot' | 'updates'
+  status: {
+    symbol: string
+    period: string
+    adjust_type: string
+    source: string
+    warning?: string | null
+    updated_at?: string | null
+    candle_count: number
+  }
+  candles: Candle[]
+  factors: Array<{ time: number; [key: string]: number | null | undefined }>
+  strategy_result?: StrategyRunResult | null
+}
+
+export type RealtimeSubscriptionStatus = {
+  id: string
+  status: 'running' | 'stopped'
+  created_at: string
+  updated_at?: string | null
+  last_error?: string | null
+  symbol: string
+  period: string
+  adjust_type: string
+  source: string
+  candle_count: number
+}
+
 export async function initDb() {
   const { data } = await http.post('/db/init')
+  return data
+}
+
+export async function createRealtimeSubscription(payload: RealtimePayload) {
+  const { data } = await http.post<RealtimeSubscriptionStatus>('/realtime/subscriptions', payload)
+  return data
+}
+
+export async function updateRealtimeSubscription(subscriptionId: string, payload: RealtimePayload) {
+  const { data } = await http.patch<RealtimeSubscriptionStatus>(`/realtime/subscriptions/${subscriptionId}`, payload)
+  return data
+}
+
+export async function deleteRealtimeSubscription(subscriptionId: string) {
+  const { data } = await http.delete<{ ok: boolean }>(`/realtime/subscriptions/${subscriptionId}`)
+  return data
+}
+
+export async function fetchRealtimeSnapshot(subscriptionId: string) {
+  const { data } = await http.get<RealtimeSnapshot>(`/realtime/subscriptions/${subscriptionId}/snapshot`)
+  return data
+}
+
+export async function fetchRealtimeUpdates(subscriptionId: string, since?: number) {
+  const { data } = await http.get<RealtimeSnapshot>(`/realtime/subscriptions/${subscriptionId}/updates`, {
+    params: since ? { since } : {}
+  })
   return data
 }
 
