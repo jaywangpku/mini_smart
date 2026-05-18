@@ -1,0 +1,455 @@
+.app-frame {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 32%),
+    transparent;
+}
+
+.side-nav {
+  border-right-color: var(--border);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 12px 0 40px rgba(47, 67, 108, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.brand h1,
+h1,
+h2,
+.panel-title,
+.factor-config-title {
+  color: var(--text);
+}
+
+.brand svg,
+.panel-title svg,
+.chart-head svg {
+  color: var(--blue);
+}
+
+.side-tabs button,
+.refresh-nav,
+label,
+.chart-nav-bar,
+.chart-nav-bar label,
+.chart-head p,
+.tasks-head p,
+.eyebrow,
+.factor-picker,
+.inline-param,
+.factor-panel-title,
+.selector-grid small,
+.task-row.header,
+.pool-row.header {
+  color: var(--muted);
+}
+
+.side-tabs button.active {
+  border-color: rgba(14, 165, 233, 0.38);
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.13), rgba(6, 182, 212, 0.1));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.62);
+}
+
+.refresh-nav,
+.tabs .icon-button,
+.icon-button,
+.ghost,
+.submit.secondary,
+.chart-nav-bar button,
+.param-disclosure summary {
+  border-color: var(--border);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.panel,
+.main-panel,
+.factor-panel {
+  border-color: var(--border);
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(18px);
+}
+
+.panel {
+  padding: 16px;
+}
+
+.main-panel {
+  padding: 16px;
+}
+
+input,
+select {
+  border-color: var(--border);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.96);
+  color-scheme: light;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--border-strong);
+  outline: 2px solid rgba(56, 189, 248, 0.12);
+}
+
+input[type='checkbox'] {
+  accent-color: var(--accent-2);
+}
+
+.submit,
+.icon-button.primary {
+  border-color: rgba(14, 165, 233, 0.3);
+  color: #1d4ed8;
+  background: linear-gradient(135deg, rgba(219, 234, 254, 0.96), rgba(207, 250, 254, 0.9));
+  box-shadow: 0 10px 22px rgba(40, 58, 95, 0.08);
+}
+
+.submit.danger,
+.icon-button.danger {
+  border-color: rgba(251, 113, 133, 0.34);
+  color: var(--danger);
+  background: rgba(127, 29, 29, 0.22);
+}
+
+.ghost:hover,
+.icon-button:hover,
+.chart-nav-bar button:hover,
+.param-disclosure summary:hover {
+  border-color: var(--border-strong);
+  background: rgba(239, 246, 255, 0.9);
+}
+
+.notice {
+  color: var(--success);
+}
+
+.error,
+.task-error {
+  color: var(--danger);
+}
+
+.factor-config,
+.chart-indicator-bar,
+.hover-table,
+.factor-picker,
+.task-row.header,
+.pool-row.header {
+  border-color: var(--border);
+  background: var(--panel-soft);
+}
+
+.chart-indicator-bar {
+  padding: 10px 12px;
+}
+
+.price-chart-wrap,
+.chart-wrap,
+.task-table,
+.pool-table {
+  border-color: var(--border);
+  background: var(--panel-solid);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.price-chart-wrap,
+.chart-wrap {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: #0f172a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 16px 36px rgba(15, 23, 42, 0.14);
+}
+
+.hover-table {
+  color: var(--text);
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.hover-table span {
+  color: var(--muted);
+}
+
+.hover-table span:first-child,
+.hover-table span:nth-child(5) {
+  color: var(--text);
+}
+
+.factor-panel-title {
+  border-bottom-color: var(--border);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.factor-panel {
+  border-color: rgba(15, 23, 42, 0.18);
+  background: #0f172a;
+}
+
+.factor-panel-title {
+  border-bottom-color: rgba(148, 163, 184, 0.18);
+  color: #cbd5e1;
+  background: #111827;
+}
+
+.empty {
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.task-table,
+.pool-table {
+  background: rgba(255, 255, 255, 0.74);
+}
+
+.task-row,
+.pool-row {
+  border-top-color: var(--border);
+  color: var(--text);
+}
+
+.status.success {
+  color: var(--success);
+}
+
+.status.failed {
+  color: var(--danger);
+}
+
+.status.running,
+.status.queued {
+  color: var(--warning);
+}
+
+.symbol-item,
+.selector-grid button {
+  border-color: var(--border);
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.symbol-item.selected,
+.selector-grid button.selected {
+  border-color: rgba(14, 165, 233, 0.48);
+  color: var(--text);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.13), rgba(6, 182, 212, 0.1));
+}
+
+.param-disclosure[open] {
+  border-color: var(--border-strong);
+  background: #ffffff;
+  box-shadow: 0 18px 42px rgba(40, 58, 95, 0.14);
+}
+
+.chart-nav-bar span {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.chart-nav-bar input,
+.inline-param input {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.factor-legend,
+.factor-legend .first {
+  color: var(--muted);
+}
+
+.factor-legend .first {
+  background: #38bdf8;
+}
+
+.factor-legend .second {
+  background: #f97316;
+}
+
+/* Clean white admin theme inspired by Tabler-style dashboards. */
+.app-frame {
+  background: var(--bg);
+}
+
+.side-nav {
+  border-right: 1px solid var(--border);
+  background: #ffffff;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.brand h1 {
+  color: #111827;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.brand svg,
+.side-tabs svg,
+.panel-title svg,
+.chart-head svg,
+.icon-button svg,
+.submit svg,
+.ghost svg {
+  color: #1f2937;
+  stroke: #1f2937;
+}
+
+.side-tabs button {
+  border-color: transparent;
+  color: #475467;
+  background: transparent;
+  font-weight: 500;
+}
+
+.side-tabs button:hover {
+  border-color: var(--border);
+  background: #f8fafc;
+}
+
+.side-tabs button.active {
+  border-color: #d7e3f4;
+  color: #111827;
+  background: #edf4ff;
+  box-shadow: none;
+}
+
+.content-shell {
+  padding: 24px 28px;
+}
+
+.panel,
+.main-panel {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  box-shadow: var(--shadow);
+  backdrop-filter: none;
+}
+
+.panel-title,
+.factor-config-title {
+  color: #111827;
+  font-weight: 800;
+}
+
+h1,
+h2 {
+  color: #111827;
+  font-weight: 800;
+}
+
+label,
+.chart-head p,
+.tasks-head p,
+.eyebrow,
+.factor-picker,
+.inline-param,
+.factor-panel-title,
+.selector-grid small,
+.task-row.header,
+.pool-row.header {
+  color: #667085;
+}
+
+input,
+select,
+textarea {
+  border-color: #d9e0ea;
+  color: #1f2937;
+  background: #ffffff;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: #90a9ca;
+  outline: 3px solid rgba(32, 107, 196, 0.1);
+}
+
+.icon-button,
+.ghost,
+.submit.secondary,
+.chart-nav-bar button,
+.param-disclosure summary {
+  border-color: #d9e0ea;
+  color: #1f2937;
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.submit,
+.icon-button.primary {
+  border-color: #b8d2f3;
+  color: #174ea6;
+  background: #eef6ff;
+  box-shadow: none;
+}
+
+.submit:hover,
+.icon-button.primary:hover {
+  border-color: #8bb8eb;
+  background: #dff0ff;
+}
+
+.submit.danger,
+.icon-button.danger {
+  border-color: #ffd0d0;
+  color: #d92d20;
+  background: #fff5f5;
+}
+
+.factor-config,
+.chart-indicator-bar,
+.hover-table,
+.factor-picker,
+.task-row.header,
+.pool-row.header,
+.security-search,
+.preview-config,
+.param-strip {
+  border-color: var(--border);
+  background: #f8fafc;
+}
+
+.custom-factor-list button,
+.pool-card-list button,
+.security-results button,
+.symbol-item,
+.selector-grid button {
+  border-color: var(--border);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.custom-factor-list button.selected,
+.pool-card-list button.selected,
+.security-results button.selected,
+.symbol-item.selected,
+.selector-grid button.selected {
+  border-color: #b8d2f3;
+  color: #111827;
+  background: #eef6ff;
+}
+
+.task-table,
+.pool-table,
+.preview-table {
+  border-color: var(--border);
+  background: #ffffff;
+}
+
+.task-row,
+.pool-row,
+.preview-row {
+  border-top-color: var(--border);
+}
+
+.modal-panel,
+.toast {
+  border-color: var(--border);
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgba(16, 24, 40, 0.12);
+}
+
+.code-editor {
+  border-color: #d9e0ea;
+}
+
+.empty-state {
+  border-color: #d9e0ea;
+  background: #f8fafc;
+}

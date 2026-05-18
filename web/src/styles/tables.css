@@ -1,0 +1,280 @@
+.tasks {
+  margin-top: 16px;
+}
+
+.task-table {
+  margin-top: 10px;
+  border: 1px solid #dfe6f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.75fr 1fr 0.6fr 0.5fr 1.4fr;
+  gap: 10px;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-top: 1px solid #edf1f6;
+  font-size: 13px;
+}
+
+.task-row.header {
+  border-top: 0;
+  color: #60728a;
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.status {
+  font-weight: 700;
+}
+
+.status.success {
+  color: #0b7d5f;
+}
+
+.status.failed {
+  color: #b42334;
+}
+
+.status.running,
+.status.queued {
+  color: #9a5b00;
+}
+
+.task-error {
+  min-width: 0;
+  overflow: hidden;
+  color: #b42334;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pool-table {
+  border: 1px solid #dfe6f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.pool-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 0.8fr) minmax(160px, 1.2fr) 64px 40px 40px;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border-top: 1px solid #edf1f6;
+}
+
+.pool-row.header {
+  border-top: 0;
+  color: #60728a;
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.pool-row input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+}
+
+.pool-row .name-input {
+  height: 34px;
+}
+
+.security-search {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--panel-soft);
+}
+
+.security-search-bar {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.security-search-bar select,
+.security-search-bar input,
+.security-search-bar .submit {
+  height: 38px;
+  min-height: 38px;
+  margin-top: 0;
+}
+
+.security-search-bar .submit {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.security-results {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+
+.security-results button {
+  display: grid;
+  gap: 3px;
+  min-height: 62px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.84);
+  cursor: pointer;
+  text-align: left;
+}
+
+.security-results button.selected {
+  border-color: rgba(14, 165, 233, 0.48);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.13), rgba(6, 182, 212, 0.1));
+}
+
+.security-results span,
+.security-results small {
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.security-info {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.security-info > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.security-info > div:first-child span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.security-info dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(90px, 1fr));
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.security-info dl div {
+  min-width: 0;
+}
+
+.security-info dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.security-info dd {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.manual-add {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.manual-add summary {
+  cursor: pointer;
+}
+
+.manual-add .add-symbol-row {
+  margin-top: 8px;
+}
+
+.custom-factor-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pool-card-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pool-card-list button,
+.custom-factor-list button {
+  display: grid;
+  gap: 3px;
+  min-height: 54px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.84);
+  cursor: pointer;
+  text-align: left;
+}
+
+.pool-card-list button.selected,
+.custom-factor-list button.selected {
+  border-color: rgba(14, 165, 233, 0.48);
+  background: linear-gradient(135deg, rgba(124, 58, 237, 0.13), rgba(6, 182, 212, 0.1));
+}
+
+.pool-card-list span,
+.pool-card-list small,
+.custom-factor-list span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pool-card-list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factor-side-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+}
+
+.factor-side-actions .sync-actions {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.factor-side-actions .submit {
+  min-width: 0;
+  margin-top: 0;
+}
+
+.factor-side-summary {
+  display: grid;
+  gap: 4px;
+  color: var(--text);
+}
+
+.factor-side-summary span,
+.factor-side-summary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
