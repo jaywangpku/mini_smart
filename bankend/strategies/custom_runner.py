@@ -1,14 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import multiprocessing as mp
 import statistics
+import time
+import traceback
 from queue import Empty
 from typing import Any
 
 from ..factors.custom_runner import ALLOWED_BUILTINS, _normalize_points
 from .backtest import run_backtest
+
+
+logger = logging.getLogger(__name__)
 
 
 def run_custom_strategy(
@@ -19,6 +25,13 @@ def run_custom_strategy(
     backtest_options: dict[str, Any] | None = None,
     timeout_seconds: float = 15.0,
 ) -> dict:
+    started = time.perf_counter()
+    logger.info(
+        "run custom strategy start candles=%s params_keys=%s factors=%s",
+        len(candles),
+        sorted(params.keys()),
+        [row.get("code") for row in custom_factors],
+    )
     queue: mp.Queue = mp.Queue(maxsize=1)
     process = mp.Process(target=_worker, args=(source_code, candles, params, custom_factors, backtest_options or {}, queue))
     process.start()
@@ -27,11 +40,19 @@ def run_custom_strategy(
     except Empty as exc:
         process.terminate()
         process.join(0.2)
+        logger.exception("run custom strategy timeout after %.2fs", timeout_seconds)
         raise TimeoutError("自定义策略执行超时") from exc
     process.join(0.2)
 
     if status == "error":
+        logger.error("run custom strategy failed elapsed=%.3fs error=%s", time.perf_counter() - started, payload)
         raise RuntimeError(str(payload))
+    logger.info(
+        "run custom strategy success elapsed=%.3fs signals=%s trades=%s",
+        time.perf_counter() - started,
+        len(payload.get("signals", [])) if isinstance(payload, dict) else "-",
+        len(payload.get("trades", [])) if isinstance(payload, dict) else "-",
+    )
     return payload
 
 
@@ -57,6 +78,7 @@ class StrategyContext:
         factor_code = code.removeprefix("custom:")
         factor = self._custom_factors.get(factor_code)
         if factor is None:
+            logger.warning("strategy factor missing requested=%s available=%s", code, sorted(self._custom_factors.keys()))
             raise ValueError(f"找不到因子: {code}")
         base = _json_object(factor.get("default_params") or "{}")
         result = _run_factor_inline(factor["source_code"], self.candles, {**base, **params})
@@ -89,6 +111,7 @@ def _worker(
         signals = _normalize_signals(raw_signals, candles)
         queue.put(("ok", run_backtest(candles, signals, backtest_options)))
     except Exception as exc:
+        logger.error("custom strategy worker failed\n%s", traceback.format_exc())
         queue.put(("error", f"{type(exc).__name__}: {exc}"))
 
 
@@ -126,6 +149,7 @@ def _normalize_signals(raw: Any, candles: list[dict]) -> list[dict]:
 
 
 def _run_factor_inline(source_code: str, candles: list[dict], params: dict[str, Any]) -> list[dict]:
+    logger.info("run inline factor start candles=%s params_keys=%s", len(candles), sorted(params.keys()))
     globals_dict = {
         "__builtins__": ALLOWED_BUILTINS,
         "math": math,
@@ -136,7 +160,9 @@ def _run_factor_inline(source_code: str, candles: list[dict], params: dict[str, 
     compute = locals_dict.get("compute") or globals_dict.get("compute")
     if not callable(compute):
         raise ValueError("因子代码必须定义 compute(candles, params) 函数")
-    return _normalize_points(compute(candles, params), candles)
+    result = _normalize_points(compute(candles, params), candles)
+    logger.info("run inline factor success points=%s", len(result))
+    return result
 
 
 def _json_object(raw: str) -> dict:

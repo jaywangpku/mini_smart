@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Optional
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -33,6 +34,7 @@ from .strategies import run_custom_strategy
 from .sync import TaskRunner
 
 
+logger = logging.getLogger(__name__)
 settings = load_settings()
 storage = Storage(settings.db_path)
 realtime_manager = RealtimeManager(storage)
@@ -184,7 +186,7 @@ def list_custom_factors(enabled_only: bool = False) -> list[dict]:
 def create_custom_factor(payload: CustomFactorCreate) -> dict:
     storage.init_db()
     try:
-        return storage.create_custom_factor(
+        factor = storage.create_custom_factor(
             code=payload.code.strip(),
             name=payload.name.strip(),
             description=payload.description,
@@ -192,7 +194,10 @@ def create_custom_factor(payload: CustomFactorCreate) -> dict:
             default_params=json.dumps(payload.default_params, ensure_ascii=False),
             enabled=payload.enabled,
         )
+        logger.info("custom factor created id=%s code=%s name=%s enabled=%s", factor["id"], factor["code"], factor["name"], factor["enabled"])
+        return factor
     except Exception as exc:
+        logger.exception("custom factor create failed code=%s name=%s", payload.code, payload.name)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -210,6 +215,7 @@ def patch_custom_factor(factor_id: str, payload: CustomFactorPatch) -> dict:
     )
     if result is None:
         raise HTTPException(status_code=404, detail="custom factor not found")
+    logger.info("custom factor updated id=%s code=%s name=%s enabled=%s", result["id"], result["code"], result["name"], result["enabled"])
     return result
 
 
@@ -219,6 +225,7 @@ def delete_custom_factor(factor_id: str) -> dict:
     deleted = storage.delete_custom_factor(factor_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="custom factor not found")
+    logger.info("custom factor deleted id=%s", factor_id)
     return {"ok": True}
 
 
@@ -232,7 +239,7 @@ def list_custom_strategies(enabled_only: bool = False) -> list[dict]:
 def create_custom_strategy(payload: CustomStrategyCreate) -> dict:
     storage.init_db()
     try:
-        return storage.create_custom_strategy(
+        strategy = storage.create_custom_strategy(
             code=payload.code.strip(),
             name=payload.name.strip(),
             description=payload.description,
@@ -240,7 +247,10 @@ def create_custom_strategy(payload: CustomStrategyCreate) -> dict:
             default_params=json.dumps(payload.default_params, ensure_ascii=False),
             enabled=payload.enabled,
         )
+        logger.info("custom strategy created id=%s code=%s name=%s enabled=%s", strategy["id"], strategy["code"], strategy["name"], strategy["enabled"])
+        return strategy
     except Exception as exc:
+        logger.exception("custom strategy create failed code=%s name=%s", payload.code, payload.name)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -258,6 +268,7 @@ def patch_custom_strategy(strategy_id: str, payload: CustomStrategyPatch) -> dic
     )
     if result is None:
         raise HTTPException(status_code=404, detail="custom strategy not found")
+    logger.info("custom strategy updated id=%s code=%s name=%s enabled=%s", result["id"], result["code"], result["name"], result["enabled"])
     return result
 
 
@@ -267,6 +278,7 @@ def delete_custom_strategy(strategy_id: str) -> dict:
     deleted = storage.delete_custom_strategy(strategy_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="custom strategy not found")
+    logger.info("custom strategy deleted id=%s", strategy_id)
     return {"ok": True}
 
 
@@ -284,15 +296,34 @@ def run_strategy(strategy_id: str, payload: CustomStrategyRun) -> dict:
         end_ts=payload.end,
     )
     params = _merged_default_params(strategy, payload.params)
+    logger.info(
+        "custom strategy run start id=%s code=%s name=%s symbol=%s period=%s adjust=%s candles=%s params_keys=%s",
+        strategy_id,
+        strategy["code"],
+        strategy["name"],
+        payload.symbol,
+        payload.period,
+        payload.adjust_type,
+        len(candles),
+        sorted(params.keys()),
+    )
     try:
-        return run_custom_strategy(
+        result = run_custom_strategy(
             strategy["source_code"],
             candles,
             params,
             storage.list_custom_factors(enabled_only=True),
             payload.backtest.dict(),
         )
+        logger.info(
+            "custom strategy run success id=%s signals=%s trades=%s",
+            strategy_id,
+            len(result.get("signals", [])),
+            len(result.get("trades", [])),
+        )
+        return result
     except Exception as exc:
+        logger.exception("custom strategy run failed id=%s code=%s name=%s", strategy_id, strategy["code"], strategy["name"])
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -310,9 +341,23 @@ def preview_custom_factor(factor_id: str, payload: CustomFactorPreview) -> list[
         end_ts=payload.end,
     )
     params = _merged_factor_params(factor, payload.params)
+    logger.info(
+        "custom factor preview start id=%s code=%s name=%s symbol=%s period=%s adjust=%s candles=%s params_keys=%s",
+        factor_id,
+        factor["code"],
+        factor["name"],
+        payload.symbol,
+        payload.period,
+        payload.adjust_type,
+        len(candles),
+        sorted(params.keys()),
+    )
     try:
-        return run_custom_factor(factor["source_code"], candles, params)
+        result = run_custom_factor(factor["source_code"], candles, params)
+        logger.info("custom factor preview success id=%s points=%s", factor_id, len(result))
+        return result
     except Exception as exc:
+        logger.exception("custom factor preview failed id=%s code=%s name=%s", factor_id, factor["code"], factor["name"])
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -514,8 +559,22 @@ def get_custom_factor_values(
             end_ts=end,
         )
     try:
-        return run_custom_factor(factor["source_code"], candles, _merged_factor_params(factor, _json_object(params)))
+        merged_params = _merged_factor_params(factor, _json_object(params))
+        logger.info(
+            "custom factor values start id=%s code=%s symbol=%s period=%s adjust=%s candles=%s params_keys=%s",
+            factor_id,
+            factor["code"],
+            symbol,
+            period,
+            adjust_type,
+            len(candles),
+            sorted(merged_params.keys()),
+        )
+        result = run_custom_factor(factor["source_code"], candles, merged_params)
+        logger.info("custom factor values success id=%s points=%s", factor_id, len(result))
+        return result
     except Exception as exc:
+        logger.exception("custom factor values failed id=%s code=%s", factor_id, factor["code"])
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
