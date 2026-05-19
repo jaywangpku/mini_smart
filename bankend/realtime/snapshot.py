@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from typing import Any
 
 from ..schemas import RealtimeSubscription
@@ -8,6 +9,9 @@ from ..storage import Storage
 from .factor_engine import RealtimeFactorEngine
 from .provider import RealtimeProvider
 from .strategy_engine import RealtimeStrategyEngine
+
+
+logger = logging.getLogger(__name__)
 
 
 class RealtimeSnapshotBuilder:
@@ -33,6 +37,13 @@ class RealtimeSnapshotBuilder:
             source = "longbridge"
         except Exception as exc:
             warning = str(exc)
+            logger.warning(
+                "realtime longbridge fetch failed, fallback to sqlite symbol=%s period=%s adjust=%s error=%s",
+                payload.symbol,
+                payload.period,
+                payload.adjust_type,
+                warning,
+            )
 
         candles = self._storage.get_candles(
             symbol=payload.symbol,
