@@ -4,7 +4,8 @@ import { LineStyle, createChart, type IChartApi, type ISeriesApi, type UTCTimest
 import type { Candle } from '../api'
 
 type FactorPoint = { time: number; [key: string]: number | null | undefined }
-type FactorSeriesMeta = { key: string; label: string; color: string; zeroLine?: boolean }
+type FactorDisplayMode = 'raw' | 'zero_center' | 'percent' | 'log10' | 'symlog'
+type FactorSeriesMeta = { key: string; label: string; color: string; zeroLine?: boolean; displayMode?: FactorDisplayMode }
 export type TradeSignal = {
   time: number
   action: 'buy' | 'sell'
@@ -281,6 +282,33 @@ function factorValue(point: FactorPoint, key: string) {
   return point[key]
 }
 
+function factorDisplayMode(key: string) {
+  return factorMeta(key).displayMode || 'raw'
+}
+
+function transformFactorValue(value: number, mode: FactorDisplayMode) {
+  if (!Number.isFinite(value)) return null
+  if (mode === 'percent') return value * 100
+  if (mode === 'log10') return value > 0 ? Math.log10(value) : null
+  if (mode === 'symlog') return Math.sign(value) * Math.log10(1 + Math.abs(value))
+  return value
+}
+
+function chartFactorValue(point: FactorPoint | undefined, key: string) {
+  if (!point) return null
+  const value = factorValue(point, key)
+  return typeof value === 'number' ? transformFactorValue(value, factorDisplayMode(key)) : null
+}
+
+function transformedFactorValues(key: string) {
+  return props.factors
+    .map((item) => {
+      const value = factorValue(item, key)
+      return typeof value === 'number' ? transformFactorValue(value, factorDisplayMode(key)) : null
+    })
+    .filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+}
+
 function sessionKey(time: number) {
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -407,7 +435,7 @@ function syncCrosshair(time: number | null, source?: IChartApi) {
   for (const [key, chart] of factorCharts) {
     const series = factorSeries.get(key)
     if (!series || chart === source) continue
-    const value = factor ? factorValue(factor, key) : null
+    const value = chartFactorValue(factor, key)
     chart.setCrosshairPosition(typeof value === 'number' && Number.isFinite(value) ? value : 0, time as UTCTimestamp, series)
   }
 
@@ -446,12 +474,16 @@ function render() {
   )
   ;(candleSeries as unknown as { setMarkers?: (markers: unknown[]) => void })?.setMarkers?.(signalMarkers())
   for (const [key, series] of factorSeries) {
+    applyFactorSeriesOptions(key, series)
     series.setData(
       props.factors.map((item) => {
         const value = factorValue(item, key)
+        const chartValue = typeof value === 'number' ? transformFactorValue(value, factorDisplayMode(key)) : null
         return value === null || value === undefined
           ? { time: item.time as UTCTimestamp }
-          : { time: item.time as UTCTimestamp, value }
+          : chartValue === null
+            ? { time: item.time as UTCTimestamp }
+            : { time: item.time as UTCTimestamp, value: chartValue }
       })
     )
   }
@@ -505,7 +537,7 @@ function createFactorChart(key: string, host: HTMLDivElement) {
   const series = chart.addLineSeries({
     color: meta.color,
     lineWidth: 2,
-    title: meta.label
+    title: ''
   })
   if (meta.zeroLine) {
     series.createPriceLine({
@@ -519,11 +551,31 @@ function createFactorChart(key: string, host: HTMLDivElement) {
   }
   factorCharts.set(key, chart)
   factorSeries.set(key, series)
+  applyFactorSeriesOptions(key, series)
   resizeObserver?.observe(host)
   bindTimeScaleSync(chart)
   chart.subscribeCrosshairMove((param) => {
     if (syncingCrosshair) return
     syncCrosshair(typeof param.time === 'number' ? param.time : null, chart)
+  })
+}
+
+function applyFactorSeriesOptions(key: string, series: ISeriesApi<'Line'>) {
+  const mode = factorDisplayMode(key)
+  const values = transformedFactorValues(key)
+  const shouldCenterZero = mode === 'zero_center' || mode === 'symlog'
+  ;(series as unknown as { applyOptions: (options: Record<string, unknown>) => void }).applyOptions({
+    autoscaleInfoProvider: shouldCenterZero
+      ? () => {
+          const maxAbs = Math.max(1e-9, ...values.map((value) => Math.abs(value)))
+          return {
+            priceRange: {
+              minValue: -maxAbs,
+              maxValue: maxAbs
+            }
+          }
+        }
+      : undefined
   })
 }
 
@@ -579,37 +631,37 @@ onMounted(() => {
   vwapSeries = candleChart.addLineSeries({
     color: '#a78bfa',
     lineWidth: 2,
-    title: 'VWAP',
+    title: '',
     priceLineVisible: false
   })
   maSeries = candleChart.addLineSeries({
     color: '#06b6d4',
     lineWidth: 2,
-    title: 'MA',
+    title: '',
     priceLineVisible: false
   })
   emaSeries = candleChart.addLineSeries({
     color: '#38bdf8',
     lineWidth: 2,
-    title: 'EMA',
+    title: '',
     priceLineVisible: false
   })
   bollUpperSeries = candleChart.addLineSeries({
     color: '#c084fc',
     lineWidth: 1,
-    title: 'BOLL上轨',
+    title: '',
     priceLineVisible: false
   })
   bollMiddleSeries = candleChart.addLineSeries({
     color: '#fbbf24',
     lineWidth: 1,
-    title: 'BOLL中轨',
+    title: '',
     priceLineVisible: false
   })
   bollLowerSeries = candleChart.addLineSeries({
     color: '#c084fc',
     lineWidth: 1,
-    title: 'BOLL下轨',
+    title: '',
     priceLineVisible: false
   })
   volumeSeries = candleChart.addHistogramSeries({
@@ -701,37 +753,14 @@ watch(() => [props.selectedFactors, props.factorSeries], syncFactorCharts, { dee
         <input v-model.number="moveStep" type="number" min="1" max="2000" />
       </label>
     </div>
-    <div class="hover-table">
-      <span>时间 {{ formatTime(selectedTime) }}</span>
-      <span>开 {{ formatNumber(selectedCandle?.open, 3) }}</span>
-      <span>高 {{ formatNumber(selectedCandle?.high, 3) }}</span>
-      <span>低 {{ formatNumber(selectedCandle?.low, 3) }}</span>
-      <span>收 {{ formatNumber(selectedCandle?.close, 3) }}</span>
-      <span>量 {{ formatVolume(selectedCandle?.volume) }}</span>
-      <span v-if="props.showVwap">VWAP {{ formatNumber(selectedVwap, 3) }}</span>
-      <span v-if="props.showMa">MA{{ props.maPeriod }} {{ formatNumber(selectedMa, 3) }}</span>
-      <span v-if="props.showEma">EMA{{ props.emaPeriod }} {{ formatNumber(selectedEma, 3) }}</span>
-      <span v-if="props.showBollinger">
-        BOLL{{ props.bollingerPeriod }},{{ props.bollingerMultiplier }} {{ formatNumber(selectedBollinger?.upper, 3) }} /
-        {{ formatNumber(selectedBollinger?.middle, 3) }} /
-        {{ formatNumber(selectedBollinger?.lower, 3) }}
-      </span>
-      <span v-for="key in selectedFactors" :key="key">
-        {{ factorMeta(key).label }} {{ formatNumber(selectedFactor?.[key], 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}
-      </span>
-      <span v-for="signal in selectedSignals" :key="`${signal.time}-${signal.action}`">
-        {{ signal.action === 'buy' ? '买点' : '卖点' }} {{ formatVolume(signal.executed_quantity || signal.quantity) }} ·
-        {{ formatNumber(signal.price, 3) }}{{ signal.reason ? ` · ${signal.reason}` : '' }}
-      </span>
-    </div>
     <div class="price-chart-wrap">
       <div v-if="!candles.length" class="empty">暂无本地K线数据</div>
       <div ref="candleHost" class="chart full"></div>
     </div>
     <div v-for="key in selectedFactors" :key="key" class="factor-panel">
       <div class="factor-panel-title">
-        <span><i :style="{ background: factorMeta(key).color }"></i>{{ factorMeta(key).label }}</span>
-        <span>{{ formatNumber(selectedFactor?.[key], 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}</span>
+        <span><i :style="{ background: factorMeta(key).color }"></i></span>
+        <span>{{ formatNumber(chartFactorValue(selectedFactor, key), 6) }} · 分位 {{ formatPercentile(percentileFor(key)) }}</span>
       </div>
       <div :ref="(el) => setFactorHost(key, el)" class="factor-chart"></div>
     </div>

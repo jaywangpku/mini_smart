@@ -203,6 +203,10 @@
   backdrop-filter: blur(8px);
 }
 
+.modal-backdrop-top {
+  z-index: 30;
+}
+
 .modal-panel {
   display: grid;
   gap: 12px;

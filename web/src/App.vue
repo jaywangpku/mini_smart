@@ -15,7 +15,7 @@ import {
 } from './api'
 import { chartLimitForPeriod, customFactorColor, customFactorIdFromKey, customFactorKey, mergeByTime, parseJsonObject, prettyJson } from './appHelpers'
 import { tabs, type TabName } from './navigation'
-import { formatMoney, formatPct } from './utils'
+import { dateRange, formatMoney, formatPct } from './utils'
 import { useKlineIndicators } from './composables/useKlineIndicators'
 import { useCustomFactors } from './composables/useCustomFactors'
 import { useCustomStrategies } from './composables/useCustomStrategies'
@@ -43,10 +43,13 @@ const candles = ref<Candle[]>([])
 const historyCandles = ref<Candle[]>([])
 const historyFitKey = ref(0)
 const factors = ref<ChartFactorPoint[]>([])
+const strategyResearchFactors = ref<ChartFactorPoint[]>([])
 const selectedSymbols = ref<string[]>([])
 const researchSymbol = ref('')
 const period = ref('1min')
 const adjustType = ref('forward')
+const researchStart = ref('')
+const researchEnd = ref('')
 const selectedFactors = ref<string[]>([])
 const showRealtimeIndicatorDialog = ref(false)
 const realtimeSelectedFactors = ref<string[]>([])
@@ -116,6 +119,7 @@ const {
   customPreviewAdjustType,
   customPreviewLimit,
   customFactorParamText,
+  customFactorDisplayMode,
   enabledCustomFactors,
   selectedCustomFactor,
   previewFactorKey,
@@ -142,7 +146,8 @@ const {
   saveCustomFactorMeta,
   removeCustomFactor,
   runCustomFactorPreview,
-  researchParamLabel
+  researchParamLabel,
+  factorDisplayModeLabel
 } = useCustomFactors({
   selectedFactors,
   showToast,
@@ -206,7 +211,7 @@ const {
   removeCustomStrategy,
   strategyRunPayload,
   runCustomStrategyPreview,
-  runStrategyResearch
+  runStrategyResearch: runStrategyResearchBase
 } = useCustomStrategies({
   researchSymbol,
   period,
@@ -296,8 +301,9 @@ async function loadChart(options: { resetView?: boolean } = {}) {
     return
   }
   const limit = chartLimitForPeriod(period.value)
-  const nextCandles = await fetchCandles(researchSymbol.value, period.value, adjustType.value, limit)
-  const nextFactors = await loadFactorValues(limit)
+  const range = dateRange(researchStart.value, researchEnd.value)
+  const nextCandles = await fetchCandles(researchSymbol.value, period.value, adjustType.value, limit, range)
+  const nextFactors = await loadFactorValues(limit, range)
   candles.value = nextCandles
   factors.value = nextFactors
   reachedHistoryStart.value = false
@@ -310,7 +316,13 @@ async function loadHistoryChart(options: { resetView?: boolean } = {}) {
     reachedHistoryStartForHistory.value = false
     return
   }
-  historyCandles.value = await fetchCandles(researchSymbol.value, period.value, adjustType.value, chartLimitForPeriod(period.value))
+  historyCandles.value = await fetchCandles(
+    researchSymbol.value,
+    period.value,
+    adjustType.value,
+    chartLimitForPeriod(period.value),
+    dateRange(researchStart.value, researchEnd.value)
+  )
   reachedHistoryStartForHistory.value = false
   if (options.resetView) historyFitKey.value += 1
 }
@@ -321,7 +333,8 @@ async function loadOlderChartData() {
   error.value = ''
   try {
     const endTime = candles.value[0].time - 1
-    const range = { end: endTime }
+    const baseRange = dateRange(researchStart.value, researchEnd.value)
+    const range = { ...baseRange, end: Math.min(baseRange.end ?? endTime, endTime) }
     const [olderCandles, olderFactors] = await Promise.all([
       fetchCandles(researchSymbol.value, period.value, adjustType.value, 1200, range),
       loadFactorValues(1200, range)
@@ -349,7 +362,9 @@ async function loadOlderHistoryChartData() {
   try {
     const endTime = historyCandles.value[0].time - 1
     const limit = chartLimitForPeriod(period.value)
-    const olderCandles = await fetchCandles(researchSymbol.value, period.value, adjustType.value, limit, { end: endTime })
+    const baseRange = dateRange(researchStart.value, researchEnd.value)
+    const range = { ...baseRange, end: Math.min(baseRange.end ?? endTime, endTime) }
+    const olderCandles = await fetchCandles(researchSymbol.value, period.value, adjustType.value, limit, range)
 
     if (!olderCandles.length) {
       reachedHistoryStartForHistory.value = true
@@ -385,6 +400,22 @@ async function loadFactorValues(limit: number, range?: { start?: number; end?: n
   )
 
   return [...byTime.values()].sort((a, b) => a.time - b.time)
+}
+
+async function loadStrategyResearchFactors() {
+  if (!strategyResearchCandles.value.length) {
+    strategyResearchFactors.value = []
+    return
+  }
+  strategyResearchFactors.value = await loadFactorValues(
+    strategyResearchCandles.value.length,
+    dateRange(strategyResearchStart.value, strategyResearchEnd.value)
+  )
+}
+
+async function runStrategyResearch() {
+  await runStrategyResearchBase()
+  await loadStrategyResearchFactors()
 }
 
 async function bootstrap() {
@@ -580,11 +611,17 @@ watch(selectedPoolId, async () => {
   await loadChart()
 })
 
-watch([researchSymbol, period, adjustType, selectedFactors, customFactorParamText], () => {
+watch([researchSymbol, period, adjustType, researchStart, researchEnd, selectedFactors, customFactorParamText], () => {
   loadChart().catch((err) => setError(err, '加载图表失败'))
 }, { deep: true })
 
-watch([researchSymbol, period, adjustType], () => {
+watch([selectedFactors, customFactorParamText], () => {
+  if (activeTab.value === 'strategyResearch') {
+    loadStrategyResearchFactors().catch((err) => setError(err, '加载策略研究因子失败'))
+  }
+}, { deep: true })
+
+watch([researchSymbol, period, adjustType, researchStart, researchEnd], () => {
   if (activeTab.value === 'history') loadHistoryChart().catch((err) => setError(err, '加载历史看板失败'))
 })
 
@@ -604,9 +641,12 @@ provideAppViewContext({
   candles,
   historyCandles,
   historyFitKey,
+  strategyResearchFactors,
   factors,
   selectedSymbols,
   researchSymbol,
+  researchStart,
+  researchEnd,
   showNewPoolDialog,
   showEditPoolDialog,
   newPoolDraft,
@@ -648,6 +688,7 @@ provideAppViewContext({
   customPreviewAdjustType,
   customPreviewLimit,
   customFactorParamText,
+  customFactorDisplayMode,
   selectedCustomStrategyId,
   showNewStrategyDialog,
   showEditStrategyDialog,
@@ -778,6 +819,7 @@ provideAppViewContext({
   simpleParamTitle,
   researchParamLabel,
   compactJson,
+  factorDisplayModeLabel,
   resetCustomFactorForm,
   createCustomFactorFromDialog,
   saveCustomFactor,

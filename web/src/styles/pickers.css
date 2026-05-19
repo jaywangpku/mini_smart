@@ -85,6 +85,16 @@
   gap: 10px;
 }
 
+.factor-option-row-with-mode {
+  grid-template-columns: minmax(0, 1fr) 118px 112px;
+}
+
+.factor-option-row-with-mode select {
+  height: 32px;
+  min-width: 0;
+  padding: 0 8px;
+}
+
 .indicator-option-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 128px;

@@ -14,6 +14,7 @@ import { customFactorColor, customFactorKey, parseJsonObject, prettyJson } from 
 import { defaultFactorSource } from '../defaultSources'
 
 type ChartFactorPoint = { time: number; [key: string]: number | null | undefined }
+export type FactorDisplayMode = 'raw' | 'zero_center' | 'percent' | 'log10' | 'symlog'
 type ToastType = (text: string, type?: 'success' | 'error') => void
 type ErrorHandler = (err: unknown, fallback: string) => void
 
@@ -52,6 +53,7 @@ export function useCustomFactors(options: {
   const customPreviewAdjustType = ref('forward')
   const customPreviewLimit = ref(120)
   const customFactorParamText = ref<Record<string, string>>({})
+  const customFactorDisplayMode = ref<Record<string, FactorDisplayMode>>({})
 
   const enabledCustomFactors = computed(() => customFactors.value.filter((factor) => factor.enabled))
   const selectedCustomFactor = computed(() => customFactors.value.find((factor) => factor.id === selectedCustomFactorId.value))
@@ -69,7 +71,8 @@ export function useCustomFactors(options: {
     key: customFactorKey(factor.id),
     label: factor.name,
     color: customFactorColor(index),
-    zeroLine: true
+    zeroLine: true,
+    displayMode: customFactorDisplayMode.value[customFactorKey(factor.id)] || 'raw'
   })))
 
   async function loadCustomFactors() {
@@ -80,6 +83,7 @@ export function useCustomFactors(options: {
     for (const factor of customFactors.value) {
       const key = customFactorKey(factor.id)
       if (!customFactorParamText.value[key]) customFactorParamText.value[key] = prettyJson(factor.default_params)
+      if (!customFactorDisplayMode.value[key]) customFactorDisplayMode.value[key] = 'raw'
     }
   }
 
@@ -276,6 +280,17 @@ export function useCustomFactors(options: {
     return factorSeriesMeta.value.find((item) => item.key === key)?.label || '自定义因子'
   }
 
+  function factorDisplayModeLabel(mode: FactorDisplayMode) {
+    const labels: Record<FactorDisplayMode, string> = {
+      raw: '原始值',
+      zero_center: '零轴居中',
+      percent: '百分比',
+      log10: 'log10',
+      symlog: '对称log'
+    }
+    return labels[mode] || '原始值'
+  }
+
   return {
     customFactors,
     selectedCustomFactorId,
@@ -300,6 +315,7 @@ export function useCustomFactors(options: {
     customPreviewAdjustType,
     customPreviewLimit,
     customFactorParamText,
+    customFactorDisplayMode,
     enabledCustomFactors,
     selectedCustomFactor,
     previewFactorKey,
@@ -326,6 +342,7 @@ export function useCustomFactors(options: {
     saveCustomFactorMeta,
     removeCustomFactor,
     runCustomFactorPreview,
-    researchParamLabel
+    researchParamLabel,
+    factorDisplayModeLabel
   }
 }
