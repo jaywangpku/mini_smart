@@ -1,6 +1,6 @@
 [project]
 name = "mini-smart"
-version = "0.1.0"
+version = "1.0.0"
 description = "Research tool for syncing Longbridge candlestick data into SQLite and viewing it in Vue."
 requires-python = ">=3.9"
 dependencies = [
