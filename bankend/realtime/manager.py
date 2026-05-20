@@ -15,12 +15,13 @@ class RealtimeManager:
     def __init__(self, storage: Storage) -> None:
         self._items: dict[str, dict[str, Any]] = {}
         self._lock = threading.RLock()
-        self._snapshot_builder = RealtimeSnapshotBuilder(storage, LongbridgePollingProvider())
+        self._snapshot_builder = RealtimeSnapshotBuilder(storage, LongbridgePollingProvider(storage))
 
     def create(self, payload: RealtimeSubscription) -> dict:
         subscription_id = f"rt_{uuid4().hex[:12]}"
         item = {
             "id": subscription_id,
+            "user_id": payload.user_id,
             "payload": payload,
             "status": "running",
             "created_at": now_iso(),
@@ -37,19 +38,24 @@ class RealtimeManager:
     def update(self, subscription_id: str, payload: RealtimeSubscription) -> dict:
         with self._lock:
             item = self._require(subscription_id)
+            self._ensure_owner(item, payload.user_id)
             item["payload"] = payload
+            item["user_id"] = payload.user_id
             item["status"] = "running"
         self.refresh(subscription_id)
         return self.status(subscription_id)
 
-    def delete(self, subscription_id: str) -> dict:
-        with self._lock:
-            self._require(subscription_id)["status"] = "stopped"
-        return {"ok": True}
-
-    def status(self, subscription_id: str) -> dict:
+    def delete(self, subscription_id: str, user_id: str | None = None) -> dict:
         with self._lock:
             item = self._require(subscription_id)
+            self._ensure_owner(item, user_id)
+            item["status"] = "stopped"
+        return {"ok": True}
+
+    def status(self, subscription_id: str, user_id: str | None = None) -> dict:
+        with self._lock:
+            item = self._require(subscription_id)
+            self._ensure_owner(item, user_id)
             snapshot = item["snapshot"]
             return {
                 "id": subscription_id,
@@ -64,12 +70,14 @@ class RealtimeManager:
                 "candle_count": snapshot.get("status", {}).get("candle_count", 0),
             }
 
-    def snapshot(self, subscription_id: str) -> dict:
+    def snapshot(self, subscription_id: str, user_id: str | None = None) -> dict:
         with self._lock:
-            return self._require(subscription_id)["snapshot"]
+            item = self._require(subscription_id)
+            self._ensure_owner(item, user_id)
+            return item["snapshot"]
 
-    def updates(self, subscription_id: str, since: int | None = None) -> dict:
-        snapshot = self.snapshot(subscription_id)
+    def updates(self, subscription_id: str, since: int | None = None, user_id: str | None = None) -> dict:
+        snapshot = self.snapshot(subscription_id, user_id=user_id)
         if since is None:
             return snapshot
         strategy_result = snapshot.get("strategy_result") or {}
@@ -119,3 +127,7 @@ class RealtimeManager:
         if item is None:
             raise KeyError(subscription_id)
         return item
+
+    def _ensure_owner(self, item: dict[str, Any], user_id: str | None) -> None:
+        if user_id is not None and item.get("user_id") != user_id:
+            raise KeyError(item["id"])

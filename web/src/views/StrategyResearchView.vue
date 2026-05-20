@@ -47,19 +47,19 @@ const { activeTab, navCollapsed, pools, selectedPoolId, poolSymbols, customFacto
               <option value="no_adjust">不复权</option>
             </select>
           </label>
+          <button class="ghost config-action-button" type="button" @click="openRealtimeIndicatorDialog">
+            K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
+          </button>
+          <button class="ghost config-action-button" type="button" @click="openResearchFactorDialog">
+            因子指标 · {{ selectedFactors.length }} 项
+          </button>
           <label>
             策略
             <select v-model="strategyResearchStrategyId">
               <option v-for="strategy in enabledCustomStrategies" :key="strategy.id" :value="strategy.id">{{ strategy.name }}</option>
             </select>
           </label>
-          <button class="ghost param-button strategy-param-button" type="button" @click="openResearchStrategyParamDialog">策略参数</button>
-          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeIndicatorDialog">
-            K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
-          </button>
-          <button class="ghost param-button strategy-param-button" type="button" @click="openResearchFactorDialog">
-            因子指标 · {{ selectedFactors.length }} 项
-          </button>
+          <button class="ghost config-action-button" type="button" @click="openResearchStrategyParamDialog">策略参数</button>
           <label>
             开始日期
             <input v-model="strategyResearchStart" type="date" />

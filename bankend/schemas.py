@@ -20,6 +20,33 @@ class SymbolPatch(BaseModel):
     market: Optional[str] = None
 
 
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ApiKeyPatch(BaseModel):
+    app_key: str
+    app_secret: str
+    access_token: str
+    http_url: Optional[str] = None
+
+
+class PasswordChange(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class AdminPasswordReset(BaseModel):
+    username: str
+    new_password: str
+
+
 class PoolCreate(BaseModel):
     name: str
     description: Optional[str] = None
@@ -116,6 +143,7 @@ class RealtimeSubscription(BaseModel):
     backtest: BacktestOptions = BacktestOptions()
     warmup_bars: int = 1000
     poll_interval: float = 5
+    user_id: Optional[str] = None
 
 
 class BatchSyncCreate(BaseModel):

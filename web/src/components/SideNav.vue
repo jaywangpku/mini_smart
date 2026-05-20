@@ -1,15 +1,17 @@
 <script setup lang="ts">
-import { Menu, PanelLeftClose } from 'lucide-vue-next'
+import { LogOut, Menu, PanelLeftClose } from 'lucide-vue-next'
 
 defineProps<{
   tabs: Array<{ id: string; label: string; icon: unknown }>
   activeTab: string
   collapsed: boolean
+  username?: string
 }>()
 
 const emit = defineEmits<{
   'update:activeTab': [value: string]
   'update:collapsed': [value: boolean]
+  logout: []
 }>()
 </script>
 
@@ -30,5 +32,11 @@ const emit = defineEmits<{
         <span v-if="!collapsed">{{ tab.label }}</span>
       </button>
     </nav>
+    <div class="side-user">
+      <span v-if="!collapsed">{{ username }}</span>
+      <button class="icon-button" title="退出登录" @click="emit('logout')">
+        <LogOut :size="17" />
+      </button>
+    </div>
   </aside>
 </template>

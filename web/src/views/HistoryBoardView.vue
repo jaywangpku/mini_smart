@@ -55,7 +55,7 @@ const { activeTab, navCollapsed, pools, selectedPoolId, poolSymbols, customFacto
             结束日期
             <input v-model="researchEnd" type="date" />
           </label>
-          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeIndicatorDialog">
+          <button class="ghost config-action-button" type="button" @click="openRealtimeIndicatorDialog">
             K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
           </button>
           <button class="submit" @click="loadHistoryChart({ resetView: true })">

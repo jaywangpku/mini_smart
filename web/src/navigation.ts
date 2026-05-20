@@ -1,8 +1,9 @@
-import { Activity, BarChart3, Code2, Database, Play } from 'lucide-vue-next'
+import { Activity, BarChart3, Code2, Database, Play, UserRound } from 'lucide-vue-next'
 
-export type TabName = 'pools' | 'sync' | 'history' | 'realtime' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies'
+export type TabName = 'pools' | 'sync' | 'history' | 'realtime' | 'research' | 'customFactors' | 'strategyResearch' | 'customStrategies' | 'account'
 
 export const tabs: Array<{ id: TabName; label: string; icon: unknown }> = [
+  { id: 'account', label: '账户设置', icon: UserRound },
   { id: 'pools', label: '股票池管理', icon: Database },
   { id: 'sync', label: '数据同步', icon: Play },
   { id: 'history', label: '历史看板', icon: BarChart3 },

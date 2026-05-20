@@ -17,7 +17,7 @@ class RealtimeFactorEngine:
 
         for factor_key in payload.factor_ids:
             factor_id = factor_key.removeprefix("custom:")
-            factor = self._storage.get_custom_factor(factor_id)
+            factor = self._storage.get_custom_factor(factor_id, user_id=payload.user_id)
             if factor is None:
                 continue
             params = merged_params(

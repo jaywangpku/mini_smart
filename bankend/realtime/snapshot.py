@@ -32,6 +32,7 @@ class RealtimeSnapshotBuilder:
                 payload.period,
                 payload.adjust_type,
                 count=min(limit, 1000),
+                user_id=payload.user_id,
             )
             self._storage.upsert_candles(recent)
             source = "longbridge"

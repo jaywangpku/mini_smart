@@ -55,10 +55,10 @@ const { activeTab, navCollapsed, pools, selectedPoolId, poolSymbols, customFacto
           结束日期
           <input v-model="researchEnd" type="date" />
         </label>
-        <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeIndicatorDialog">
+        <button class="ghost config-action-button" type="button" @click="openRealtimeIndicatorDialog">
           K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
         </button>
-        <button class="ghost param-button strategy-param-button" type="button" @click="openResearchFactorDialog">
+        <button class="ghost config-action-button" type="button" @click="openResearchFactorDialog">
           因子指标 · {{ selectedFactors.length }} 项
         </button>
         <button class="submit" @click="loadChart({ resetView: true })">

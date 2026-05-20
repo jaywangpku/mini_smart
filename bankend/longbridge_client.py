@@ -76,8 +76,9 @@ def _normalize_timestamp(timestamp: int, period: str) -> int:
 
 
 class LongbridgeClient:
-    def __init__(self) -> None:
+    def __init__(self, credentials: dict | None = None) -> None:
         load_dotenv(PROJECT_ROOT / ".env")
+        self._credentials = credentials or {}
         try:
             from longbridge.openapi import Config, QuoteContext
         except ImportError as exc:
@@ -87,10 +88,10 @@ class LongbridgeClient:
         self._ctx = QuoteContext(self._config(Config))
 
     def _config(self, config_type):
-        app_key = _env("LONGPORT_APP_KEY") or _env("LONGBRIDGE_APP_KEY")
-        app_secret = _env("LONGPORT_APP_SECRET") or _env("LONGBRIDGE_APP_SECRET")
-        access_token = _env("LONGPORT_ACCESS_TOKEN") or _env("LONGBRIDGE_ACCESS_TOKEN")
-        http_url = _env("LONGPORT_HTTP_URL") or _env("LONGBRIDGE_HTTP_URL")
+        app_key = self._credentials.get("app_key") or _env("LONGPORT_APP_KEY") or _env("LONGBRIDGE_APP_KEY")
+        app_secret = self._credentials.get("app_secret") or _env("LONGPORT_APP_SECRET") or _env("LONGBRIDGE_APP_SECRET")
+        access_token = self._credentials.get("access_token") or _env("LONGPORT_ACCESS_TOKEN") or _env("LONGBRIDGE_ACCESS_TOKEN")
+        http_url = self._credentials.get("http_url") or _env("LONGPORT_HTTP_URL") or _env("LONGBRIDGE_HTTP_URL")
 
         missing = [
             name

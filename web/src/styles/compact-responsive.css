@@ -1,30 +1,56 @@
-/* Compact button system. */
+/* Unified button sizing contract. */
+:root {
+  --button-height: 34px;
+  --button-height-compact: 30px;
+  --button-padding-x: 12px;
+  --button-padding-x-compact: 10px;
+  --button-min-width: 76px;
+  --button-min-width-compact: 64px;
+}
+
 .submit,
 .ghost,
 .icon-button,
 .chart-nav-bar button,
 .param-disclosure summary,
 .side-tabs button {
-  min-height: 32px;
+  box-sizing: border-box;
+  min-height: var(--button-height);
   border-width: 1px;
   border-radius: 6px;
   font-size: 13px;
+  line-height: 1;
 }
 
 .submit,
 .ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 0 10px;
+  width: auto;
+  height: var(--button-height);
+  min-width: var(--button-min-width);
+  margin-top: 0;
+  padding: 0 var(--button-padding-x);
+  white-space: nowrap;
 }
 
-.submit {
-  width: auto;
-  min-width: 72px;
+.submit.compact,
+.ghost.compact,
+button.compact {
+  height: var(--button-height-compact);
+  min-height: var(--button-height-compact);
+  min-width: var(--button-min-width-compact);
+  margin-top: 0;
+  padding: 0 var(--button-padding-x-compact);
 }
 
 .icon-button {
   width: 34px;
-  height: 32px;
+  min-width: 34px;
+  height: var(--button-height);
+  padding: 0;
 }
 
 .side-tabs button {
@@ -55,7 +81,7 @@
   gap: 6px;
 }
 
-.sync-actions .submit {
+.sync-actions .submit:not(.compact) {
   width: 100%;
 }
 
@@ -67,9 +93,48 @@
 .modal-actions .submit {
   width: 92px;
   min-width: 92px;
-  height: 34px;
-  min-height: 34px;
+  height: var(--button-height);
+  min-height: var(--button-height);
   margin-top: 0;
+}
+
+.config-action-button,
+.ghost.config-action-button {
+  width: 100%;
+  height: var(--button-height);
+  min-height: var(--button-height);
+  min-width: 0;
+  margin-top: 10px;
+  padding: 0 var(--button-padding-x);
+  justify-content: center;
+  font-size: var(--font-size-control);
+}
+
+.config-action-button + .config-action-button {
+  margin-top: 8px;
+}
+
+.config-action-button + label,
+label + .config-action-button,
+.config-action-button + .sync-actions,
+.config-action-button + .submit,
+.research-controls label + .submit {
+  margin-top: 10px;
+}
+
+.account-form-panel .sync-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.account-form-panel .sync-actions .submit,
+.account-form-panel .sync-actions .ghost {
+  width: auto;
+}
+
+.account-user-actions .compact {
+  width: 72px;
 }
 
 /* Unified typography scale. Keep the UI compact while preserving readable chart and form controls. */
@@ -103,6 +168,7 @@ textarea,
 .chart-nav-bar button,
 .chart-nav-bar label,
 .chart-indicator-bar,
+.config-action-button,
 .hover-table,
 .factor-picker,
 .factor-option-row,
@@ -162,7 +228,8 @@ label,
 .ghost,
 .icon-button,
 .chart-nav-bar button,
-.param-button {
+.param-button,
+.config-action-button {
   font-weight: 600;
 }
 

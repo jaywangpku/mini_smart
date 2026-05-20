@@ -8,6 +8,7 @@ import { useKlineIndicators } from './composables/useKlineIndicators'
 import { useCustomFactors } from './composables/useCustomFactors'
 import { useCustomStrategies } from './composables/useCustomStrategies'
 import { usePools } from './composables/usePools'
+import { useAuth } from './composables/useAuth'
 import { useRealtimeBoard } from './composables/useRealtimeBoard'
 import { useResearchCharts } from './composables/useResearchCharts'
 import { useSyncTasks } from './composables/useSyncTasks'
@@ -23,6 +24,8 @@ import CustomFactorView from './views/CustomFactorView.vue'
 import FactorResearchView from './views/FactorResearchView.vue'
 import CustomStrategyView from './views/CustomStrategyView.vue'
 import StrategyResearchView from './views/StrategyResearchView.vue'
+import AuthView from './views/AuthView.vue'
+import AccountView from './views/AccountView.vue'
 import AppDialogs from './views/AppDialogs.vue'
 
 const activeTab = ref<TabName>('pools')
@@ -54,6 +57,16 @@ const {
 const visibleCandleCount = ref(160)
 const loading = ref(false)
 const { message, error, showToast, setError, clearToastTimer } = useToast()
+const {
+  currentUser,
+  authReady,
+  authMode,
+  authForm,
+  authLoading,
+  bootstrapAuth,
+  submitAuth: submitAuthBase,
+  signOut
+} = useAuth({ setError })
 let timer: number | undefined
 
 const {
@@ -331,6 +344,11 @@ async function runStrategyResearch() {
   await loadStrategyResearchFactors()
 }
 
+async function submitAuth() {
+  const user = await submitAuthBase()
+  if (user) await bootstrap()
+}
+
 async function bootstrap() {
   loading.value = true
   error.value = ''
@@ -345,6 +363,11 @@ async function bootstrap() {
   } finally {
     loading.value = false
   }
+}
+
+async function startApp() {
+  await bootstrapAuth()
+  if (currentUser.value) await bootstrap()
 }
 
 function compactJson(raw: string) {
@@ -402,6 +425,11 @@ watch(activeTab, (tab) => {
 provideAppViewContext({
   activeTab,
   navCollapsed,
+  currentUser,
+  authReady,
+  authMode,
+  authForm,
+  authLoading,
   pools,
   selectedPoolId,
   poolSymbols,
@@ -541,6 +569,8 @@ provideAppViewContext({
   factorSeriesMeta,
   setError,
   showToast,
+  submitAuth,
+  signOut,
   loadPools,
   loadPoolSymbols,
   loadCustomFactors,
@@ -636,8 +666,9 @@ provideAppViewContext({
 })
 
 onMounted(() => {
-  bootstrap()
+  startApp()
   timer = window.setInterval(async () => {
+    if (!currentUser.value) return
     await loadTasks()
     if (hasRunningTask.value) await loadChart()
   }, 3000)
@@ -651,8 +682,23 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="app-frame" :class="{ collapsed: navCollapsed }">
-    <SideNav :tabs="tabs" :active-tab="activeTab" :collapsed="navCollapsed" @update:active-tab="(value) => activeTab = value as TabName" @update:collapsed="navCollapsed = $event" />
+  <AuthView v-if="authReady && !currentUser" />
+  <main v-else-if="!authReady" class="app-frame">
+    <section class="content-shell">
+      <ToastMessage :message="message" :error="error" />
+      <div class="empty-state">加载中...</div>
+    </section>
+  </main>
+  <main v-else class="app-frame" :class="{ collapsed: navCollapsed }">
+    <SideNav
+      :tabs="tabs"
+      :active-tab="activeTab"
+      :collapsed="navCollapsed"
+      :username="currentUser?.username"
+      @logout="signOut"
+      @update:active-tab="(value) => activeTab = value as TabName"
+      @update:collapsed="navCollapsed = $event"
+    />
 
     <section class="content-shell">
       <ToastMessage :message="message" :error="error" />
@@ -664,6 +710,7 @@ onUnmounted(() => {
       <CustomStrategyView v-if="activeTab === 'customStrategies'" />
       <StrategyResearchView v-if="activeTab === 'strategyResearch'" />
       <FactorResearchView v-if="activeTab === 'research'" />
+      <AccountView v-if="activeTab === 'account'" />
       <AppDialogs />
     </section>
   </main>

@@ -1,5 +1,6 @@
 export * from './api/types'
 export * from './api/system'
+export * from './api/auth'
 export * from './api/securities'
 export * from './api/pools'
 export * from './api/factors'

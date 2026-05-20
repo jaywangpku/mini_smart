@@ -115,11 +115,12 @@ class SyncService:
 
 
 class TaskRunner:
-    def __init__(self, storage: Storage):
+    def __init__(self, storage: Storage, user_id: str = "user_admin"):
         self.storage = storage
+        self.user_id = user_id
 
     def enqueue(self, request: SyncRequest) -> tuple[str, bool]:
-        active = self.storage.get_active_task(request.symbol, request.period, request.adjust_type)
+        active = self.storage.get_active_task(request.symbol, request.period, request.adjust_type, user_id=self.user_id)
         if active is not None:
             return active["id"], False
 
@@ -132,9 +133,10 @@ class TaskRunner:
                 request.adjust_type,
                 datetime_to_ts(request.start),
                 datetime_to_ts(request.end),
+                user_id=self.user_id,
             )
         except sqlite3.IntegrityError:
-            active = self.storage.get_active_task(request.symbol, request.period, request.adjust_type)
+            active = self.storage.get_active_task(request.symbol, request.period, request.adjust_type, user_id=self.user_id)
             if active is not None:
                 return active["id"], False
             raise
@@ -143,7 +145,7 @@ class TaskRunner:
     def run_task(self, task_id: str, request: SyncRequest) -> None:
         self.storage.update_task(task_id, "running")
         try:
-            rows = SyncService(self.storage).run(request)
+            rows = SyncService(self.storage, LongbridgeClient(self.storage.get_user_api_key(self.user_id, masked=False))).run(request)
         except Exception as exc:
             message = str(exc)
             self.storage.update_task(task_id, "failed", error=message)

@@ -122,6 +122,35 @@
   white-space: nowrap;
 }
 
+.config-action-button {
+  width: 100%;
+  height: 34px;
+  min-height: 34px;
+  margin-top: 10px;
+  padding: 0 12px;
+  justify-content: center;
+  color: var(--text);
+  background: var(--panel-soft);
+  white-space: nowrap;
+}
+
+.config-action-button + .config-action-button {
+  margin-top: 8px;
+}
+
+.config-action-button + label,
+label + .config-action-button,
+.config-action-button + .sync-actions,
+.config-action-button + .submit,
+.research-controls label + .submit {
+  margin-top: 10px;
+}
+
+.config-action-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .code-editor-shell {
   position: relative;
 }

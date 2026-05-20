@@ -50,10 +50,10 @@ const { activeTab, navCollapsed, pools, selectedPoolId, poolSymbols, customFacto
             刷新秒数
             <input v-model.number="realtimePollInterval" type="number" min="1" max="60" step="1" />
           </label>
-          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeIndicatorDialog">
+          <button class="ghost config-action-button" type="button" @click="openRealtimeIndicatorDialog">
             K线指标 · {{ [showVwap, showMa, showEma, showBollinger].filter(Boolean).length }} 项
           </button>
-          <button class="ghost param-button strategy-param-button" type="button" @click="openRealtimeFactorDialog">
+          <button class="ghost config-action-button" type="button" @click="openRealtimeFactorDialog">
             实时因子 · {{ realtimeSelectedFactors.length }} / 2
           </button>
           <label>
@@ -63,7 +63,7 @@ const { activeTab, navCollapsed, pools, selectedPoolId, poolSymbols, customFacto
               <option v-for="strategy in enabledCustomStrategies" :key="strategy.id" :value="strategy.id">{{ strategy.name }}</option>
             </select>
           </label>
-          <button class="ghost param-button strategy-param-button" type="button" :disabled="!realtimeStrategyId" @click="openRealtimeStrategyParamDialog">策略参数</button>
+          <button class="ghost config-action-button" type="button" :disabled="!realtimeStrategyId" @click="openRealtimeStrategyParamDialog">策略参数</button>
           <div class="sync-actions realtime-actions">
             <button class="submit compact" :disabled="realtimeConnected" @click="startRealtime">
               <Play :size="17" />
